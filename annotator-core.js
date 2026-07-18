@@ -17,16 +17,20 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  // Three CriticMarkup forms, tried in this order at each position:
+  // CriticMarkup forms, tried in this order at each position:
   //   1) paired highlight+comment {== text ==}{>> comment <<}  (groups 1,2)
   //   2) standalone highlight      {== text ==}                (group 3)
   //   3) standalone point comment  {>> comment <<}             (group 4)
+  //   4) deletion                  {-- text --}                (group 5)
+  //   5) insertion                 {++ text ++}                (group 6)
+  //   6) substitution              {~~ old ~> new ~~}          (groups 7,8)
   // Standalone highlights are used for the non-last blocks of a multi-block
   // annotation, which all share the single trailing comment (one "group").
   // Text/comment groups are "tempered" so they cannot span across their own
-  // closer (==} / <<}); otherwise a standalone highlight between a {==…==} and a
-  // later {>>…<<} would be swallowed into one giant pair match.
-  const CM_ANY = /\{==\s*((?:(?!==\})[\s\S])*?)\s*==\}\{>>\s*((?:(?!<<\})[\s\S])*?)\s*<<\}|\{==\s*((?:(?!==\})[\s\S])*?)\s*==\}|\{>>\s*((?:(?!<<\})[\s\S])*?)\s*<<\}/g;
+  // closer (==} / <<} / --} / ++} / ~~}); otherwise a standalone highlight
+  // between a {==…==} and a later {>>…<<} would be swallowed into one giant
+  // pair match.
+  const CM_ANY = /\{==\s*((?:(?!==\})[\s\S])*?)\s*==\}\{>>\s*((?:(?!<<\})[\s\S])*?)\s*<<\}|\{==\s*((?:(?!==\})[\s\S])*?)\s*==\}|\{>>\s*((?:(?!<<\})[\s\S])*?)\s*<<\}|\{--((?:(?!--\})[\s\S])*?)--\}|\{\+\+((?:(?!\+\+\})[\s\S])*?)\+\+\}|\{~~((?:(?!~>|~~\})[\s\S])*?)~>((?:(?!~~\})[\s\S])*?)~~\}/g;
 
   // Parse all annotations in document order, assigning a GROUP id: a run of
   // standalone highlights binds to the following paired comment (they form one
@@ -39,7 +43,10 @@
       let it;
       if (m[1] !== undefined) it = { kind: 'pair', text: m[1], comment: m[2] };
       else if (m[3] !== undefined) it = { kind: 'highlight', text: m[3], comment: '' };
-      else it = { kind: 'point', text: '', comment: m[4] };
+      else if (m[4] !== undefined) it = { kind: 'point', text: '', comment: m[4] };
+      else if (m[5] !== undefined) it = { kind: 'del', text: m[5], comment: '' };
+      else if (m[6] !== undefined) it = { kind: 'ins', text: m[6], comment: '' };
+      else it = { kind: 'sub', text: m[7], text2: m[8], comment: '' };
       it.mStart = m.index; it.mEnd = m.index + m[0].length;
       if (it.kind === 'highlight') { it.group = -1; pending.push(it); }
       else if (it.kind === 'pair') { const g = gid++; pending.forEach(p => p.group = g); pending = []; it.group = g; }
@@ -51,25 +58,55 @@
   }
 
   // Rewrite the source by replacing every annotation in `group`. Highlights and
-  // pairs unwrap to their text; points vanish. Right-to-left to keep offsets valid.
+  // pairs unwrap to their text; points vanish. For suggested edits this is the
+  // REJECT action: deletion keeps the original text, insertion vanishes, and a
+  // substitution reverts to the old text. Right-to-left to keep offsets valid.
   function deleteGroup(src, group) {
+    return replaceGroup(src, group, function (it) {
+      if (it.kind === 'point' || it.kind === 'ins') return '';
+      if (it.kind === 'del') return it.text;
+      if (it.kind === 'sub') return it.text;
+      return it.text.trim();
+    });
+  }
+
+  // ACCEPT a suggested edit: deletion removes the text, insertion keeps it,
+  // substitution takes the new text. Comment kinds unwrap like deleteGroup.
+  function acceptGroup(src, group) {
+    return replaceGroup(src, group, function (it) {
+      if (it.kind === 'point' || it.kind === 'del') return '';
+      if (it.kind === 'ins') return it.text;
+      if (it.kind === 'sub') return it.text2;
+      return it.text.trim();
+    });
+  }
+
+  function replaceGroup(src, group, replacement) {
     let out = src;
     const items = scanAnnotations(src);
     for (let k = items.length - 1; k >= 0; k--) {
       const it = items[k];
       if (it.group !== group) continue;
-      out = out.slice(0, it.mStart) + (it.kind === 'point' ? '' : it.text.trim()) + out.slice(it.mEnd);
+      out = out.slice(0, it.mStart) + replacement(it) + out.slice(it.mEnd);
     }
     return out;
   }
 
+  // Wrap [start,end) in a substitution suggestion {~~old~>new~~}.
+  function suggestEdit(src, start, end, replacement) {
+    const old = src.slice(start, end);
+    return src.slice(0, start) + '{~~' + old + '~>' + replacement + '~~}' + src.slice(end);
+  }
+
   // Change a group's comment (only its pair/point member carries the comment).
+  // Suggested edits (del/ins/sub) carry no comment and are left untouched.
   function updateGroup(src, group, newComment) {
     let out = src;
     const items = scanAnnotations(src);
     for (let k = items.length - 1; k >= 0; k--) {
       const it = items[k];
       if (it.group !== group) continue;
+      if (it.kind === 'del' || it.kind === 'ins' || it.kind === 'sub') continue;
       let rep;
       if (it.kind === 'point') rep = '{>> ' + newComment + ' <<}';
       else if (it.kind === 'pair') rep = '{== ' + it.text.trim() + ' ==}{>> ' + newComment + ' <<}';
@@ -88,6 +125,25 @@
 
   function escapeHtml(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // Document-comment zone: optional YAML frontmatter, then a run of standalone
+  // point comments separated only by whitespace. Returns { end, items } where
+  // `end` is the offset new doc comments insert at and `items` are the
+  // scanAnnotations entries living in the zone.
+  function docZone(src) {
+    let pos = 0;
+    const fm = src.match(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(\r?\n|$)/);
+    if (fm) pos = fm[0].length;
+    const items = [];
+    for (const it of scanAnnotations(src)) {
+      if (it.kind !== 'point') break;
+      if (it.mStart < pos) continue;                      // inside frontmatter text
+      if (src.slice(pos, it.mStart).trim() !== '') break;  // real content before it
+      items.push(it);
+      pos = it.mEnd;
+    }
+    return { end: pos, items };
   }
 
   // Find [start,end) ranges of fenced code blocks in the source.
@@ -121,7 +177,7 @@
     for (const it of items) {
       if (inAnyRange(it.mStart, fences)) continue; // leave literal inside code fences
       const placeholder = '​ANN' + i + '​';
-      placeholders.push({ placeholder, i, kind: it.kind, text: it.text, comment: (it.comment || '').trim(), group: it.group });
+      placeholders.push({ placeholder, i, kind: it.kind, text: it.text, text2: it.text2, comment: (it.comment || '').trim(), group: it.group });
       out += src.slice(last, it.mStart) + placeholder;
       last = it.mEnd;
       i++;
@@ -142,6 +198,19 @@
     const delBtn = '<button class="ann-delete" data-ann-group="' + g + '">&times;</button>';
     if (e.kind === 'point') {
       return '<span class="ann-wrap ann-point" ' + attrs + '>' + badge + '&#128172; ' + c + delBtn + '</span></span>';
+    }
+    if (e.kind === 'del' || e.kind === 'ins' || e.kind === 'sub') {
+      // Suggested edit: strike the old text, underline the new; hover reveals
+      // accept (✓) / reject (✗) controls.
+      const inline = function (t) { return (md && md.renderInline) ? md.renderInline(t) : escapeHtml(t); };
+      let body = '';
+      if (e.kind !== 'ins') body += '<del class="ann-del">' + inline(e.text) + '</del>';
+      if (e.kind === 'ins') body += '<ins class="ann-ins">' + inline(e.text) + '</ins>';
+      if (e.kind === 'sub') body += '<ins class="ann-ins">' + inline(e.text2 || '') + '</ins>';
+      const controls = '<span class="ann-edit-controls">' +
+        '<button class="ann-accept" data-ann-group="' + g + '" title="Accept suggestion">&#10003;</button>' +
+        '<button class="ann-reject" data-ann-group="' + g + '" title="Reject suggestion">&#10005;</button></span>';
+      return '<span class="ann-wrap ann-edit" ' + attrs + '>' + body + controls + '</span>';
     }
     const inner = (md && md.renderInline) ? md.renderInline(e.text) : escapeHtml(e.text);
     const mark = '<mark class="ann-highlight">' + inner + '</mark>';
@@ -430,6 +499,9 @@
     inAnyRange,
     scanAnnotations,
     deleteGroup,
+    acceptGroup,
+    suggestEdit,
+    docZone,
     updateGroup,
     getGroupComment,
     preprocessCriticMarkup,

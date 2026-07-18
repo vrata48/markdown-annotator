@@ -4,15 +4,26 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Markdown Annotator</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js"></script>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<!-- CDN deps pinned to exact versions with SRI so an upstream release can't
+     silently change (or compromise) the app. Update hash when bumping version. -->
+<link rel="stylesheet" id="hljs-light" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L" crossorigin="anonymous">
+<link rel="stylesheet" id="hljs-dark" disabled href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH" crossorigin="anonymous">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"
+        integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"
+        integrity="sha384-wLhprpjsmjc/XYIcF+LpMxd8yS1gss6jhevOp6F6zhiIoFK6AmHtm4bGKtehTani" crossorigin="anonymous"></script>
 <script src="annotator-core.js"></script>
 <!-- Mermaid ships as an ES module; load it, then expose it to the main (classic)
-     script via window.mermaid and re-render once it's ready. -->
+     script via window.mermaid and re-render once it's ready. Exact-version pin
+     (ESM chain loads sibling modules, so SRI isn't practical here). -->
 <script type="module">
-  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-  mermaid.initialize({ startOnLoad: false, theme: 'default' });
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.esm.min.mjs';
+  const dark = document.documentElement.dataset.theme === 'dark';
+  mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default' });
   window.mermaid = mermaid;
   // The main script (end of <body>) has already run by the time this deferred
   // module executes, so renderMermaid is defined. Re-render any file opened at
@@ -55,7 +66,41 @@
   --font-ui: "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-doc: "Charter", "Sitka Text", "Cambria", Georgia, serif;
   --font-mono: "Cascadia Code", "SF Mono", "Consolas", monospace;
+
+  --code-bg: #F4F2EC;
+  --code-inline-bg: #F1EEE6;
+  --warn-bg: #FBEFEA;
+  --warn-border: #E4B8AE;
+  --wash-border: #C9D4E4;
+  --wash-hover: #DDE6F2;
 }
+
+/* The desk after dark */
+:root[data-theme="dark"] {
+  --paper: #262723;
+  --desk: #1B1C19;
+  --desk-deep: #32332D;
+  --ink: #E7E4D8;
+  --ink-soft: #A29D8C;
+  --line: #3C3D35;
+  --pen: #8CA5D6;
+  --pen-deep: #AFC3E8;
+  --pen-wash: #2A3547;
+  --mark: #5C4E1E;
+  --mark-edge: #B99B45;
+  --red-pen: #E07862;
+  --ok: #82BE92;
+  --shadow: 0 8px 28px rgba(0,0,0,0.5);
+
+  --code-bg: #1F201C;
+  --code-inline-bg: #32332D;
+  --warn-bg: #3A2620;
+  --warn-border: #6E4038;
+  --wash-border: #3D4C63;
+  --wash-hover: #33405A;
+}
+:root[data-theme="dark"] #mode-switch button.on { box-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+:root[data-theme="dark"] #rendered-view .content { box-shadow: 0 2px 12px rgba(0,0,0,0.35); }
 
 body {
   font-family: var(--font-ui);
@@ -145,15 +190,133 @@ body {
 
 .toolbar-spacer { flex: 1; }
 
-#annotation-count {
+#toolbar #annotation-count {
   font-size: 12px;
   color: var(--pen);
   font-weight: 600;
   background: var(--pen-wash);
   padding: 3px 10px;
   border-radius: 20px;
+  border: none;
+  cursor: pointer;
 }
-#annotation-count:empty { display: none; }
+#toolbar #annotation-count:hover { background: var(--wash-hover); }
+#toolbar #annotation-count:empty { display: none; }
+
+/* Folder file list (left) */
+#file-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  display: none;
+  flex-direction: column;
+  border-right: 1px solid var(--desk-deep);
+  background: var(--desk);
+}
+#file-sidebar.visible { display: flex; }
+#file-sidebar header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--desk-deep);
+  overflow: hidden;
+}
+#folder-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#file-sidebar header button {
+  border: none; background: none; cursor: pointer;
+  font-size: 15px; color: var(--ink-soft); padding: 0 4px;
+}
+#file-list { flex: 1; overflow-y: auto; padding: 6px; }
+.file-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;   /* ellipsis on the left, filename end visible */
+  text-align: left;
+}
+.file-item:hover { background: var(--desk-deep); }
+.file-item.current { background: var(--pen-wash); color: var(--pen-deep); font-weight: 600; }
+.file-empty { padding: 14px; font-size: 12.5px; color: var(--ink-soft); text-align: center; }
+
+/* Annotation list sidebar */
+#ann-sidebar {
+  width: 320px;
+  flex-shrink: 0;
+  display: none;
+  flex-direction: column;
+  border-left: 1px solid var(--desk-deep);
+  background: var(--desk);
+}
+#ann-sidebar.visible { display: flex; }
+#ann-sidebar header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--desk-deep);
+}
+#ann-sidebar header button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--ink-soft);
+  padding: 0 4px;
+}
+#ann-sidebar-list { flex: 1; overflow-y: auto; padding: 8px; }
+.ann-side-item {
+  padding: 8px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12.5px;
+  line-height: 1.45;
+  margin-bottom: 2px;
+}
+.ann-side-item:hover { background: var(--desk-deep); }
+.ann-side-item .kind {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 6px;
+}
+.ann-side-item .kind.k-doc { color: var(--pen); }
+.ann-side-item .kind.k-comment { color: var(--pen-deep); }
+.ann-side-item .kind.k-edit { color: var(--ok); }
+.ann-side-item .quote {
+  display: block;
+  color: var(--ink-soft);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ann-side-empty { padding: 16px; color: var(--ink-soft); font-size: 13px; text-align: center; }
+
+/* Flash target annotation after sidebar jump */
+@keyframes ann-flash-kf { 0%, 60% { outline-color: var(--mark-edge); } 100% { outline-color: transparent; } }
+.ann-flash { outline: 3px solid transparent; outline-offset: 2px; border-radius: 3px; animation: ann-flash-kf 1.6s ease-out; }
 
 /* Main layout — a sheet of paper on the desk */
 #main-container {
@@ -211,9 +374,9 @@ body {
 .content ul, .content ol { margin: 0.6em 0; padding-left: 2em; }
 .content li { margin: 0.25em 0; }
 .content blockquote { margin: 0.8em 0; padding: 0.5em 1.1em; border-left: 3px solid var(--pen); background: var(--pen-wash); color: var(--pen-deep); border-radius: 0 4px 4px 0; }
-.content pre { margin: 0.9em 0; padding: 16px 18px; background: #F4F2EC; border: 1px solid var(--desk-deep); border-radius: 6px; overflow-x: auto; font-size: 13.5px; line-height: 1.55; }
+.content pre { margin: 0.9em 0; padding: 16px 18px; background: var(--code-bg); border: 1px solid var(--desk-deep); border-radius: 6px; overflow-x: auto; font-size: 13.5px; line-height: 1.55; }
 .content code { font-family: var(--font-mono); font-size: 0.85em; }
-.content :not(pre) > code { background: #F1EEE6; border: 1px solid var(--desk-deep); padding: 1px 5px; border-radius: 4px; font-size: 0.8em; }
+.content :not(pre) > code { background: var(--code-inline-bg); border: 1px solid var(--desk-deep); padding: 1px 5px; border-radius: 4px; font-size: 0.8em; }
 .content table { border-collapse: collapse; margin: 0.9em 0; width: 100%; font-size: 0.92em; }
 .content th, .content td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; }
 .content th { background: var(--desk); font-weight: 600; font-family: var(--font-ui); font-size: 0.85em; }
@@ -303,6 +466,55 @@ body {
 }
 
 .ann-wrap:hover .ann-delete { display: inline-flex; align-items: center; justify-content: center; }
+
+/* Suggested edits ({--del--} {++ins++} {~~old~>new~~}) */
+.ann-del {
+  color: var(--red-pen);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  background: rgba(179,55,43,0.07);
+  border-radius: 2px;
+}
+.ann-ins {
+  color: var(--ok);
+  text-decoration: underline;
+  text-decoration-style: solid;
+  text-underline-offset: 3px;
+  background: rgba(62,122,78,0.08);
+  border-radius: 2px;
+}
+.ann-edit-controls { display: none; white-space: nowrap; margin-left: 2px; vertical-align: middle; }
+.ann-edit:hover .ann-edit-controls { display: inline-flex; gap: 2px; }
+.ann-edit-controls button {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  border-radius: 5px;
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.ann-accept { color: var(--ok); }
+.ann-reject { color: var(--red-pen); }
+.ann-edit-controls button:hover { background: var(--desk); }
+body.view-mode .ann-edit-controls { display: none !important; }
+
+/* Comment / Suggest-edit tabs in the annotation popup */
+.popup-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.popup-tabs button {
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.popup-tabs button.on { background: var(--pen-wash); color: var(--pen-deep); }
+.popup-tabs button:disabled { display: none; }
 
 /* Annotation popup */
 #annotation-popup {
@@ -413,7 +625,7 @@ body {
   align-items: center;
   gap: 14px;
   background: var(--pen-wash);
-  border: 1px solid #C9D4E4;
+  border: 1px solid var(--wash-border);
   border-radius: 8px;
   padding: 10px 16px;
   font-size: 13.5px;
@@ -433,8 +645,8 @@ body {
 
 #browser-warning {
   display: none;
-  background: #FBEFEA;
-  border: 1px solid #E4B8AE;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
   color: var(--red-pen);
   border-radius: 8px;
   padding: 10px 16px;
@@ -488,6 +700,39 @@ body.dragging::after {
 #edit-input:focus { border-color: var(--pen); box-shadow: 0 0 0 2px rgba(53,80,123,0.18); }
 #edit-popup .btn-row { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
 #edit-popup .btn-row button { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px; font-weight: 500; cursor: pointer; }
+
+/* Disk-change conflict banner */
+#disk-banner {
+  display: none;
+  align-items: center;
+  gap: 12px;
+  position: fixed;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2500;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--red-pen);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 13px;
+  box-shadow: var(--shadow);
+  max-width: min(720px, 90vw);
+}
+#disk-banner button {
+  border: 1px solid var(--warn-border);
+  background: var(--paper);
+  color: var(--red-pen);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#disk-banner button:hover { background: var(--warn-bg); }
+#btn-disk-dismiss { border: none !important; background: none !important; font-size: 16px; padding: 2px 6px !important; }
 
 /* Save status flash */
 #save-status {
@@ -563,7 +808,7 @@ body.dragging::after {
   margin: 0 0 14px;
   padding: 12px 16px;
   background: var(--pen-wash);
-  border: 1px solid #C9D4E4;
+  border: 1px solid var(--wash-border);
   border-radius: 8px;
   font-family: var(--font-ui);
 }
@@ -720,10 +965,18 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <span id="filename-display">No file open</span>
   <span id="unsaved-indicator">&bull; unsaved</span>
   <div class="toolbar-spacer"></div>
-  <span id="annotation-count"></span>
+  <button id="btn-theme" title="Toggle dark mode">&#127769;</button>
+  <button id="annotation-count" title="Show all comments"></button>
 </div>
 
 <div id="main-container">
+  <div id="file-sidebar">
+    <header>
+      <span id="folder-name">Folder</span>
+      <button id="btn-folder-close" title="Close folder">&times;</button>
+    </header>
+    <div id="file-list"></div>
+  </div>
   <div id="rendered-view">
     <div id="doc-panel">
       <div class="doc-panel-header">Document comments</div>
@@ -761,9 +1014,20 @@ body.view-mode #rendered-view .content { cursor: auto; }
       </div>
     </div>
   </div>
+  <div id="ann-sidebar">
+    <header>
+      <span>Comments</span>
+      <button id="btn-sidebar-close" title="Close">&times;</button>
+    </header>
+    <div id="ann-sidebar-list"></div>
+  </div>
 </div>
 
 <div id="annotation-popup">
+  <div class="popup-tabs" id="popup-tabs">
+    <button id="tab-comment" class="on">Comment</button>
+    <button id="tab-suggest">Suggest edit</button>
+  </div>
   <div class="selected-preview" id="selected-preview"></div>
   <textarea id="annotation-input" placeholder="Add your comment..."></textarea>
   <div class="btn-row">
@@ -780,6 +1044,12 @@ body.view-mode #rendered-view .content { cursor: auto; }
   </div>
 </div>
 
+<div id="disk-banner">
+  <span>This file changed on disk and you have unsaved changes. Saving will overwrite the disk version.</span>
+  <button id="btn-disk-reload">Reload from disk (discard mine)</button>
+  <button id="btn-disk-dismiss" title="Dismiss">&times;</button>
+</div>
+
 <div id="save-status">Saved</div>
 <div id="notice"></div>
 <div id="ins-caret"></div>
@@ -794,1027 +1064,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script>
-// ── State ──────────────────────────────────────────────────
-const state = {
-  rawMarkdown: '',
-  fileName: '',
-  dirty: false,
-  pending: null,
-  editingIdx: null,
-  fileOpen: false,
-  fileHandle: null,
-  mode: 'annotate',   // 'annotate' | 'view'
-};
-
-const FS_SUPPORTED = typeof window.showOpenFilePicker === 'function';
-
-// ── DOM refs ───────────────────────────────────────────────
-const $ = (s) => document.querySelector(s);
-const contentEl = $('#content');
-const renderedView = $('#rendered-view');
-const popup = $('#annotation-popup');
-const annInput = $('#annotation-input');
-const selectedPreview = $('#selected-preview');
-const filenameDisplay = $('#filename-display');
-const unsavedInd = $('#unsaved-indicator');
-const annCount = $('#annotation-count');
-const editPopup = $('#edit-popup');
-const editInput = $('#edit-input');
-const saveStatus = $('#save-status');
-
-// ── Markdown-it setup ──────────────────────────────────────
-const md = markdownit({
-  html: true,
-  linkify: true,
-  typographer: true,
-  highlight(str, lang) {
-    if (lang && typeof hljs !== 'undefined' && hljs.getLanguage(lang)) {
-      try { return hljs.highlight(str, { language: lang }).value; } catch (_) {}
-    }
-    return '';
-  }
-});
-
-// Shared source-level annotation logic (also used by the headless test harness):
-// classification (analyzeTarget), insertion (applyInserts), and the mermaid
-// fence override. The local render helpers below stay as-is.
-const Core = window.AnnotatorCore;
-Core.configureMd(md);
-
-// ── File I/O via the File System Access API ────────────────
-// The app is a static page: the browser itself shows the open dialog and
-// writes saves straight back to the local file. Chromium-only.
-const FILE_TYPES = [{
-  description: 'Markdown files',
-  accept: { 'text/markdown': ['.md', '.markdown', '.mdx', '.txt'] },
-}];
-
-async function openHandle(handle, opts) {
-  const silent = opts && opts.silent;
-  if (state.dirty && !confirm('You have unsaved changes. Open another file anyway?')) return;
-  try {
-    if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted' &&
-        await handle.requestPermission({ mode: 'readwrite' }) !== 'granted') {
-      if (!silent) showNotice('File access was not granted.');
-      return;
-    }
-    const file = await handle.getFile();
-    state.rawMarkdown = await file.text();
-    state.fileHandle = handle;
-    state.fileName = file.name;
-    state.dirty = false;
-    state.fileOpen = true;
-    render();
-    recordRecent(handle);
-  } catch (e) {
-    if (e && e.name === 'AbortError') return;
-    if (!silent) alert('Failed to open file: ' + e.message);
-  }
-}
-
-// After a page refresh, reopen the last file. Permission usually drops back
-// to 'prompt' on reload and requestPermission needs a user gesture, so:
-// still granted → reopen silently; otherwise → show the resume bar.
-async function tryRestoreLast() {
-  if (!FS_SUPPORTED || state.fileOpen) return;
-  const rec = await fetchRecent();
-  if (!rec.length) return;
-  const last = rec[0];
-  try {
-    if (await last.handle.queryPermission({ mode: 'readwrite' }) === 'granted') {
-      await openHandle(last.handle, { silent: true });
-      if (state.fileOpen) return;
-    }
-  } catch (_) { return; }  // dead handle — recents pruning will catch it
-  if (state.fileOpen) return;
-  const bar = $('#resume-bar');
-  $('#resume-name').textContent = last.name;
-  bar.style.display = 'flex';
-  $('#btn-resume').addEventListener('click', () => {
-    bar.style.display = 'none';
-    openHandle(last.handle);
-  }, { once: true });
-}
-
-async function pickFile() {
-  if (!FS_SUPPORTED) return;
-  try {
-    const [handle] = await window.showOpenFilePicker({ types: FILE_TYPES });
-    if (handle) await openHandle(handle);
-  } catch (e) {
-    if (e && e.name !== 'AbortError') alert('Failed to open file: ' + e.message);
-  }
-}
-
-async function reloadFromDisk() {
-  if (!state.fileHandle) return;
-  try {
-    const file = await state.fileHandle.getFile();
-    state.rawMarkdown = await file.text();
-    state.dirty = false;
-    render();
-  } catch (e) {
-    alert('Failed to reload file: ' + e.message);
-  }
-}
-
-// ── Recent files (file handles persisted in IndexedDB) ─────
-// Web pages never see real paths; we keep the FileSystemFileHandle objects
-// themselves (they are structured-cloneable) and re-request permission on use.
-const IDB_NAME = 'md-annotator';
-const IDB_STORE = 'recents';
-const MAX_RECENT = 10;
-
-function idbOpen() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 1);
-    req.onupgradeneeded = () => {
-      req.result.createObjectStore(IDB_STORE, { keyPath: 'id', autoIncrement: true });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function idbRequest(req) {
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function fetchRecent() {
-  try {
-    const db = await idbOpen();
-    const all = await idbRequest(db.transaction(IDB_STORE).objectStore(IDB_STORE).getAll());
-    db.close();
-    return all.sort((a, b) => b.ts - a.ts);
-  } catch (e) {
-    return [];
-  }
-}
-
-async function recordRecent(handle) {
-  try {
-    const db = await idbOpen();
-    let all = await idbRequest(db.transaction(IDB_STORE).objectStore(IDB_STORE).getAll());
-    // Dedupe: drop entries pointing at the same file (isSameEntry) and trim.
-    const drop = [];
-    for (const e of all) {
-      try { if (await e.handle.isSameEntry(handle)) drop.push(e.id); }
-      catch (_) { drop.push(e.id); }  // dead/uncloneable handle — prune
-    }
-    all = all.filter(e => !drop.includes(e.id)).sort((a, b) => b.ts - a.ts);
-    for (const e of all.slice(MAX_RECENT - 1)) drop.push(e.id);
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    const store = tx.objectStore(IDB_STORE);
-    for (const id of drop) store.delete(id);
-    store.add({ handle, name: handle.name, ts: Date.now() });
-    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
-    db.close();
-  } catch (e) { /* recents are best-effort */ }
-}
-
-// ── Recent files UI ────────────────────────────────────────
-const recentMenu = $('#recent-menu');
-const welcomeRecent = $('#welcome-recent');
-
-function recentItemButton(f) {
-  const btn = document.createElement('button');
-  const name = document.createElement('span');
-  name.className = 'recent-name';
-  name.textContent = f.name;
-  const meta = document.createElement('span');
-  meta.className = 'recent-path';
-  meta.textContent = 'opened ' + new Date(f.ts).toLocaleDateString();
-  btn.append(name, meta);
-  btn.addEventListener('click', () => { hideRecentMenu(); openHandle(f.handle); });
-  return btn;
-}
-
-function hideRecentMenu() { recentMenu.classList.remove('visible'); }
-
-// Dropdown under the Open file button: "Browse files…" + recent files.
-async function showRecentMenu() {
-  const files = await fetchRecent();
-  recentMenu.innerHTML = '';
-  const browse = document.createElement('button');
-  browse.className = 'recent-browse';
-  browse.textContent = 'Browse files…';
-  browse.addEventListener('click', () => { hideRecentMenu(); pickFile(); });
-  recentMenu.appendChild(browse);
-  if (files.length > 0) {
-    const sep = document.createElement('div');
-    sep.className = 'recent-sep';
-    recentMenu.appendChild(sep);
-    files.forEach(f => recentMenu.appendChild(recentItemButton(f)));
-  }
-  const rect = $('#btn-open').getBoundingClientRect();
-  recentMenu.style.left = rect.left + 'px';
-  recentMenu.style.top = (rect.bottom + 4) + 'px';
-  recentMenu.classList.add('visible');
-}
-
-async function refreshWelcomeRecent() {
-  if (state.fileOpen) return;
-  const files = await fetchRecent();
-  const list = $('#welcome-recent-list');
-  list.innerHTML = '';
-  files.forEach(f => list.appendChild(recentItemButton(f)));
-  welcomeRecent.style.display = files.length ? 'block' : 'none';
-}
-
-let savePending = false;
-async function saveFile() {
-  if (!state.fileOpen || !state.fileHandle || savePending) return;
-  savePending = true;
-  const content = state.rawMarkdown;
-  try {
-    const writable = await state.fileHandle.createWritable();
-    await writable.write(content);
-    await writable.close();
-    // Only clear dirty if nothing changed while the write was in flight.
-    if (state.rawMarkdown === content) {
-      state.dirty = false;
-      updateToolbar();
-    }
-    flashSaved();
-  } catch (e) {
-    alert('Save failed: ' + e.message);
-  } finally {
-    savePending = false;
-  }
-}
-
-function flashSaved() {
-  saveStatus.classList.add('show');
-  setTimeout(() => saveStatus.classList.remove('show'), 1500);
-}
-
-// ── Document-level comments (top-of-file zone) ─────────────
-// Doc zone = optional YAML frontmatter, then a run of standalone point
-// comments separated only by whitespace. Returns { end, items } where `end`
-// is the source offset new doc comments insert at and `items` are the
-// scanAnnotations entries living in the zone.
-function docZone(src) {
-  let pos = 0;
-  const fm = src.match(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(\r?\n|$)/);
-  if (fm) pos = fm[0].length;
-  const items = [];
-  for (const it of Core.scanAnnotations(src)) {
-    if (it.kind !== 'point') break;
-    if (it.mStart < pos) continue;                     // inside frontmatter text
-    if (src.slice(pos, it.mStart).trim() !== '') break; // real content before it
-    items.push(it);
-    pos = it.mEnd;
-  }
-  return { end: pos, items };
-}
-
-const docPanel = $('#doc-panel');
-const docList = $('#doc-list');
-const docAddForm = $('#doc-add-form');
-const docAddInput = $('#doc-add-input');
-
-function renderDocPanel(zone) {
-  docList.innerHTML = '';
-  for (const it of zone.items) {
-    const row = document.createElement('div');
-    row.className = 'doc-item';
-    const icon = document.createElement('span');
-    icon.textContent = '\u{1F4AC}';
-    const text = document.createElement('span');
-    text.className = 'doc-text';
-    text.textContent = it.comment.trim();
-    const del = document.createElement('button');
-    del.className = 'doc-del';
-    del.innerHTML = '&times;';
-    del.title = 'Delete comment';
-    del.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (state.mode === 'view') return;
-      deleteAnnotation(it.group);
-    });
-    row.append(icon, text, del);
-    row.addEventListener('click', () => {
-      if (state.mode === 'view') return;
-      openEditPopup(it.group, row);
-    });
-    docList.appendChild(row);
-  }
-  updateDocPanelVisibility(zone.items.length);
-}
-
-function updateDocPanelVisibility(count) {
-  if (count === undefined) count = docList.children.length;
-  const show = state.fileOpen && (count > 0 || state.mode === 'annotate');
-  docPanel.style.display = show ? 'block' : 'none';
-}
-
-function hideDocAddForm() {
-  docAddForm.style.display = 'none';
-  docAddInput.value = '';
-}
-
-function addDocComment() {
-  const comment = docAddInput.value.trim();
-  if (!comment) return;
-  const src = state.rawMarkdown;
-  const { end } = docZone(src);
-  const prefix = end > 0 && src[end - 1] !== '\n' ? '\n' : '';
-  const rest = src.slice(end).replace(/^(\r?\n)+/, '');
-  state.rawMarkdown = src.slice(0, end) + prefix + '{>> ' + comment + ' <<}\n\n' + rest;
-  hideDocAddForm();
-  markDirty();
-  render();
-}
-
-// ── Render ─────────────────────────────────────────────────
-function render() {
-  const scrollTop = renderedView.scrollTop;
-  // Use the shared core: highlighted text is rendered as inline markdown, so a
-  // highlight covering **bold**/links/`code` stays one annotation.
-  const { preprocessed, count, placeholders } = Core.preprocessCriticMarkup(state.rawMarkdown);
-  // Doc-zone comments render in the top panel, not as inline badges.
-  const zone = docZone(state.rawMarkdown);
-  const docGroups = new Set(zone.items.map(it => it.group));
-  let rendered = md.render(preprocessed);
-  // Swap placeholders back to annotation HTML after markdown-it is done,
-  // so table/block parsing isn't broken by inline annotation spans.
-  for (const e of placeholders) {
-    const html = (e.kind === 'point' && docGroups.has(e.group)) ? '' : Core.annHtml(md, e);
-    rendered = rendered.split(e.placeholder).join(html);
-  }
-  rendered = rendered.replace(/<p>\s*<\/p>/g, '');
-  contentEl.innerHTML = rendered;
-  renderDocPanel(zone);
-  renderedView.scrollTop = scrollTop;
-
-  contentEl.querySelectorAll('.ann-delete').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (state.mode === 'view') return;
-      deleteAnnotation(parseInt(btn.dataset.annGroup, 10));
-    });
-  });
-
-  // Click a badge or any highlighted block of a group → edit the group's comment.
-  contentEl.querySelectorAll('.ann-comment-badge, .ann-hl').forEach(el => {
-    el.addEventListener('click', (e) => {
-      if (e.target.classList.contains('ann-delete')) return;
-      e.stopPropagation();
-      if (state.mode === 'view') return;
-      openEditPopup(parseInt(el.dataset.annGroup, 10), el);
-    });
-  });
-
-  updateToolbar();
-  const groups = new Set(placeholders.map(p => p.group)).size;
-  annCount.textContent = groups > 0 ? `${groups} annotation${groups > 1 ? 's' : ''}` : '';
-
-  renderMermaid();
-}
-
-// Render every .mermaid block freshly produced by the markdown renderer.
-// innerHTML is rebuilt on each render(), so each call gets unprocessed nodes.
-let mermaidSeq = 0;
-async function renderMermaid() {
-  if (!window.mermaid) return;  // module still loading; it will re-invoke us
-  const blocks = contentEl.querySelectorAll('.mermaid');
-  if (!blocks.length) return;
-  for (const el of blocks) {
-    const source = el.textContent;
-    try {
-      const { svg } = await window.mermaid.render('mmd-' + (mermaidSeq++), source);
-      el.innerHTML = svg;
-      el.classList.remove('mermaid-error');
-    } catch (e) {
-      el.classList.add('mermaid-error');
-      el.textContent = 'Mermaid error: ' + (e && e.message ? e.message : e);
-    }
-  }
-}
-window.renderMermaid = renderMermaid;
-
-function updateToolbar() {
-  filenameDisplay.textContent = state.fileName || 'No file open';
-  filenameDisplay.title = state.fileName || '';
-  unsavedInd.style.display = state.dirty ? 'inline' : 'none';
-  const noFile = !state.fileOpen;
-  $('#btn-save').disabled = noFile;
-  $('#btn-refresh').disabled = noFile;
-  $('#btn-mode-annotate').disabled = noFile;
-  $('#btn-mode-view').disabled = noFile;
-}
-
-function markDirty() {
-  state.dirty = true;
-  updateToolbar();
-}
-
-// ── Source mapping ──────────────────────────────────────────
-function findInSource(selectedText, beforeCtx, afterCtx) {
-  const src = state.rawMarkdown;
-  const normalizedSel = selectedText.replace(/\r\n/g, '\n');
-
-  let candidates = [];
-
-  let pos = -1;
-  while ((pos = src.indexOf(normalizedSel, pos + 1)) !== -1) {
-    candidates.push({ start: pos, end: pos + normalizedSel.length, score: 0 });
-  }
-
-  const wrappers = [['**','**'],['*','*'],['__','__'],['_','_'],['`','`'],['~~','~~'],['***','***']];
-  for (const [open, close] of wrappers) {
-    let p = -1;
-    const wrapped = open + normalizedSel + close;
-    while ((p = src.indexOf(wrapped, p + 1)) !== -1) {
-      candidates.push({ start: p + open.length, end: p + open.length + normalizedSel.length, score: 1 });
-    }
-  }
-
-  if (candidates.length === 0) {
-    const collapsedSel = normalizedSel.replace(/\s+/g, ' ').trim();
-    const { collapsed, map } = collapseWithMap(src);
-    let cp = -1;
-    while ((cp = collapsed.indexOf(collapsedSel, cp + 1)) !== -1) {
-      candidates.push({ start: map[cp], end: map[cp + collapsedSel.length - 1] + 1, score: -1 });
-    }
-  }
-
-  if (candidates.length === 0) return null;
-  if (candidates.length === 1) return candidates[0];
-
-  const normalizedBefore = stripMarkdownInline(beforeCtx).slice(-40);
-  const normalizedAfter = stripMarkdownInline(afterCtx).slice(0, 40);
-
-  for (const c of candidates) {
-    const srcBefore = stripMarkdownInline(src.slice(Math.max(0, c.start - 80), c.start)).slice(-40);
-    const srcAfter = stripMarkdownInline(src.slice(c.end, c.end + 80)).slice(0, 40);
-    c.score += lcsLength(normalizedBefore, srcBefore) + lcsLength(normalizedAfter, srcAfter);
-  }
-
-  candidates.sort((a, b) => b.score - a.score);
-  return candidates[0];
-}
-
-function collapseWithMap(str) {
-  const collapsed = [];
-  const map = [];
-  let inSpace = false;
-  for (let i = 0; i < str.length; i++) {
-    if (/\s/.test(str[i])) {
-      if (!inSpace) { collapsed.push(' '); map.push(i); inSpace = true; }
-    } else {
-      collapsed.push(str[i]); map.push(i); inSpace = false;
-    }
-  }
-  return { collapsed: collapsed.join(''), map };
-}
-
-function stripMarkdownInline(s) {
-  return s
-    .replace(/\*\*\*(.*?)\*\*\*/g, '$1')
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/\*(.*?)\*/g, '$1')
-    .replace(/~~(.*?)~~/g, '$1')
-    .replace(/`(.*?)`/g, '$1')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/^#{1,6}\s+/gm, '');
-}
-
-function lcsLength(a, b) {
-  if (!a || !b) return 0;
-  const m = a.length, n = b.length;
-  const prev = new Array(n + 1).fill(0);
-  for (let i = 1; i <= m; i++) {
-    let prevDiag = 0;
-    for (let j = 1; j <= n; j++) {
-      const temp = prev[j];
-      if (a[i-1] === b[j-1]) prev[j] = prevDiag + 1;
-      else prev[j] = Math.max(prev[j], prev[j-1]);
-      prevDiag = temp;
-    }
-  }
-  return prev[n];
-}
-
-// ── Annotation CRUD (by group — a multi-block annotation is one group) ──────
-function deleteAnnotation(group) {
-  state.rawMarkdown = Core.deleteGroup(state.rawMarkdown, group);
-  markDirty();
-  render();
-}
-
-function updateAnnotation(group, newComment) {
-  state.rawMarkdown = Core.updateGroup(state.rawMarkdown, group, newComment);
-  markDirty();
-  render();
-}
-
-// ── Selection handling ─────────────────────────────────────
-function getSelectionContext() {
-  const sel = window.getSelection();
-  if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
-
-  const text = sel.toString().trim();
-  if (!text) return null;
-
-  const range = sel.getRangeAt(0);
-  if (!contentEl.contains(range.commonAncestorContainer)) return null;
-
-  const preRange = document.createRange();
-  preRange.setStartBefore(contentEl);
-  preRange.setEnd(range.startContainer, range.startOffset);
-  const beforeCtx = preRange.toString().slice(-80);
-
-  const postRange = document.createRange();
-  postRange.setStart(range.endContainer, range.endOffset);
-  postRange.setEndAfter(contentEl);
-  const afterCtx = postRange.toString().slice(0, 80);
-
-  return { text, beforeCtx, afterCtx, rect: range.getBoundingClientRect() };
-}
-
-// True only if the click landed on an actual text glyph (not padding, blank
-// space below the content, or the empty area past the end of a short line).
-function clickedOnText(e) {
-  let node = null, offset = 0;
-  if (document.caretRangeFromPoint) {
-    const r = document.caretRangeFromPoint(e.clientX, e.clientY);
-    if (r) { node = r.startContainer; offset = r.startOffset; }
-  } else if (document.caretPositionFromPoint) {
-    const p = document.caretPositionFromPoint(e.clientX, e.clientY);
-    if (p) { node = p.offsetNode; offset = p.offset; }
-  }
-  if (!node || node.nodeType !== Node.TEXT_NODE) return false;
-  if (!contentEl.contains(node)) return false;
-  const text = node.textContent;
-  const range = document.createRange();
-  if (offset < text.length) { range.setStart(node, offset); range.setEnd(node, offset + 1); }
-  else if (offset > 0) { range.setStart(node, offset - 1); range.setEnd(node, offset); }
-  else return false;
-  for (const rc of range.getClientRects()) {
-    // Generous vertical tolerance: with line-height > 1 there's blank leading
-    // above/below the glyph that still counts as "on the line". Horizontal stays
-    // tight so clicks past the end of a short line are still rejected.
-    const vpad = Math.max(6, rc.height * 0.6);
-    if (e.clientX >= rc.left - 3 && e.clientX <= rc.right + 3 &&
-        e.clientY >= rc.top - vpad && e.clientY <= rc.bottom + vpad) return true;
-  }
-  return false;
-}
-
-// Context for a single click (collapsed caret) — used for point comments.
-function getCaretContext(e) {
-  const sel = window.getSelection();
-  if (!sel || !sel.rangeCount || !sel.isCollapsed) return null;
-
-  const range = sel.getRangeAt(0);
-  if (!contentEl.contains(range.commonAncestorContainer)) return null;
-
-  const preRange = document.createRange();
-  preRange.setStartBefore(contentEl);
-  preRange.setEnd(range.startContainer, range.startOffset);
-  const beforeCtx = preRange.toString().slice(-80);
-
-  const postRange = document.createRange();
-  postRange.setStart(range.endContainer, range.endOffset);
-  postRange.setEndAfter(contentEl);
-  const afterCtx = postRange.toString().slice(0, 80);
-
-  let rect = range.getBoundingClientRect();
-  if (!rect || (rect.width === 0 && rect.height === 0)) {
-    rect = { left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY };
-  }
-  return { beforeCtx, afterCtx, rect };
-}
-
-// Map a caret (no selection) to a source offset by anchoring on the words
-// just before the caret (falling back to the words just after it). Tries
-// progressively shorter anchors so inline markdown is less likely to defeat
-// the match. Returns the offset to insert the comment at, or null.
-function findCaretPosInSource(beforeCtx, afterCtx) {
-  const beforeWords = beforeCtx.replace(/\s+$/, '').split(/\s+/).filter(Boolean);
-  for (let n = Math.min(4, beforeWords.length); n >= 1; n--) {
-    const anchor = beforeWords.slice(-n).join(' ');
-    const m = findInSource(anchor, beforeWords.slice(0, -n).join(' '), afterCtx);
-    if (m) return m.end;
-  }
-  const afterWords = afterCtx.replace(/^\s+/, '').split(/\s+/).filter(Boolean);
-  for (let n = Math.min(4, afterWords.length); n >= 1; n--) {
-    const anchor = afterWords.slice(0, n).join(' ');
-    const m = findInSource(anchor, beforeCtx, afterWords.slice(n).join(' '));
-    if (m) return m.start;
-  }
-  return null;
-}
-
-function positionPopup(el, rect) {
-  let top = rect.bottom + 8;
-  let left = rect.left;
-  const popupWidth = 340;
-  if (left + popupWidth > window.innerWidth - 16) left = window.innerWidth - popupWidth - 16;
-  if (left < 16) left = 16;
-  if (top + 200 > window.innerHeight) top = rect.top - 200;
-  el.style.top = top + 'px';
-  el.style.left = left + 'px';
-}
-
-// Map a DOM selection to a source [start,end] range. Try a contiguous match of
-// the whole selected text first (best for simple in-line selections); otherwise
-// map the start and end boundaries independently (handles selections that cross
-// inline formatting or block boundaries — analyzeTarget then splits as needed).
-function mapSelectionRange(selCtx) {
-  const { text, beforeCtx, afterCtx } = selCtx;
-  if (!text.includes('\t')) {
-    const single = findInSource(text, beforeCtx, afterCtx);
-    if (single) return { start: single.start, end: single.end };
-  }
-  const flat = text.replace(/\t/g, ' ');
-  const start = findCaretPosInSource(beforeCtx, flat);
-  const end = findCaretPosInSource((beforeCtx + ' ' + flat).slice(-200), afterCtx);
-  if (start != null && end != null && end > start) return { start, end };
-  return null;
-}
-
-function previewFor(text) {
-  const t = text.replace(/\s+/g, ' ').trim();
-  return t.length > 120 ? t.slice(0, 120) + '…' : t;
-}
-
-// Show the comment box for an already-validated target. `pending.inserts` is the
-// exact insertion analyzeTarget chose; commit just applies it.
-const insCaret = $('#ins-caret');
-function showInsCaret(rect) {
-  insCaret.style.left = rect.left + 'px';
-  insCaret.style.top = rect.top + 'px';
-  insCaret.style.height = Math.max(14, (rect.bottom - rect.top) || 16) + 'px';
-  insCaret.classList.add('visible');
-}
-function hideInsCaret() { insCaret.classList.remove('visible'); }
-
-function showCommentPopup(pending) {
-  state.pending = pending;
-  // Don't echo the selected text back as a title; only show the small generic
-  // hint for point/block comments.
-  selectedPreview.textContent = pending.preview || '';
-  selectedPreview.style.display = pending.preview ? '' : 'none';
-  annInput.value = '';
-  positionPopup(popup, pending.rect);
-  popup.classList.add('visible');
-  if (pending.caretRect) showInsCaret(pending.caretRect); else hideInsCaret();
-  annInput.focus();
-}
-
-function hideAnnotationPopup() {
-  popup.classList.remove('visible');
-  hideInsCaret();
-  state.pending = null;
-}
-
-function commitAnnotation() {
-  const comment = annInput.value.trim();
-  if (!comment || !state.pending) return;
-  state.rawMarkdown = Core.applyInserts(state.rawMarkdown, state.pending.inserts, comment);
-  markDirty();
-  render();
-  hideAnnotationPopup();
-}
-
-// Transient toast for "can't annotate here" notices.
-let noticeTimer = null;
-function showNotice(msg) {
-  const el = $('#notice');
-  el.textContent = msg;
-  el.classList.add('show');
-  clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => el.classList.remove('show'), 2600);
-}
-
-// ── Edit annotation popup ──────────────────────────────────
-function openEditPopup(group, badgeEl) {
-  state.editingIdx = group;
-  editInput.value = Core.getGroupComment(state.rawMarkdown, group);
-
-  const rect = badgeEl.getBoundingClientRect();
-  let top = rect.bottom + 8;
-  let left = rect.left;
-  if (left + 340 > window.innerWidth - 16) left = window.innerWidth - 340 - 16;
-  if (left < 16) left = 16;
-  if (top + 180 > window.innerHeight) top = rect.top - 180;
-
-  editPopup.style.top = top + 'px';
-  editPopup.style.left = left + 'px';
-  editPopup.classList.add('visible');
-  editInput.focus();
-  editInput.select();
-}
-
-function hideEditPopup() {
-  editPopup.classList.remove('visible');
-  state.editingIdx = null;
-}
-
-function commitEdit() {
-  const newComment = editInput.value.trim();
-  if (!newComment || state.editingIdx === null) return;
-  updateAnnotation(state.editingIdx, newComment);
-  hideEditPopup();
-}
-
-// ── Event listeners ────────────────────────────────────────
-$('#btn-open').addEventListener('click', (e) => {
-  e.stopPropagation();
-  if (recentMenu.classList.contains('visible')) hideRecentMenu();
-  else showRecentMenu();
-});
-document.addEventListener('mousedown', (e) => {
-  if (!recentMenu.contains(e.target) && !e.target.closest('#btn-open')) hideRecentMenu();
-});
-window.addEventListener('scroll', hideRecentMenu, true);
-$('#btn-save').addEventListener('click', saveFile);
-$('#btn-refresh').addEventListener('click', async () => {
-  if (!state.fileOpen) return;
-  if (state.dirty && !confirm('You have unsaved changes. Reload anyway?')) return;
-  await reloadFromDisk();
-});
-
-// ── Annotate / View mode ───────────────────────────────────
-function setMode(mode) {
-  state.mode = mode;
-  document.body.classList.toggle('view-mode', mode === 'view');
-  $('#btn-mode-annotate').classList.toggle('on', mode === 'annotate');
-  $('#btn-mode-view').classList.toggle('on', mode === 'view');
-  if (mode === 'view') {
-    hideAnnotationPopup();
-    hideEditPopup();
-    hideDocAddForm();
-  }
-  updateDocPanelVisibility();
-}
-function toggleMode() { setMode(state.mode === 'annotate' ? 'view' : 'annotate'); }
-$('#btn-mode-annotate').addEventListener('click', () => setMode('annotate'));
-$('#btn-mode-view').addEventListener('click', () => setMode('view'));
-
-// ── Document comments panel events ─────────────────────────
-$('#btn-doc-add').addEventListener('click', () => {
-  if (state.mode === 'view') return;
-  docAddForm.style.display = 'block';
-  docAddInput.focus();
-});
-$('#btn-doc-save').addEventListener('click', addDocComment);
-$('#btn-doc-cancel').addEventListener('click', hideDocAddForm);
-docAddInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addDocComment(); }
-  if (e.key === 'Escape') { e.stopPropagation(); hideDocAddForm(); }
-});
-
-// Selection → validate → annotation popup (or "unsupported" notice).
-renderedView.addEventListener('mouseup', (e) => {
-  if (state.mode === 'view') return;
-  if (popup.contains(e.target) || editPopup.contains(e.target)) return;
-  if (e.target.closest('.ann-comment-badge') || e.target.closest('.ann-delete')) return;
-
-  setTimeout(() => {
-    if (!state.fileOpen) return;
-    const selCtx = getSelectionContext();
-    if (!selCtx) return;
-    const range = mapSelectionRange(selCtx);
-    if (!range) { showNotice('Couldn’t locate that selection in the source — try a more unique passage.'); return; }
-    const r = Core.analyzeTarget(state.rawMarkdown, { type: 'range', start: range.start, end: range.end }, md);
-    if (!r.supported) { showNotice(r.reason || 'Can’t annotate this selection without breaking the formatting.'); return; }
-    showCommentPopup({ inserts: r.inserts, rect: selCtx.rect, preview: '' });
-  }, 10);
-});
-
-// Single click (no selection) → validate → point/block comment (or notice).
-let pointClickTimer = null;
-renderedView.addEventListener('click', (e) => {
-  if (!state.fileOpen) return;
-  if (state.mode === 'view') return;
-  if (popup.contains(e.target) || editPopup.contains(e.target)) return;
-  if (e.target.closest('.ann-comment-badge') || e.target.closest('.ann-delete')) return;
-
-  // Clicking a rendered diagram → comment on the whole diagram (block comment
-  // before its fence in source); annotating inside the SVG isn't possible.
-  const mermaidEl = e.target.closest('.mermaid');
-  if (mermaidEl) {
-    const all = [...contentEl.querySelectorAll('.mermaid')];
-    const di = all.indexOf(mermaidEl);
-    const mfences = Core.codeFenceRanges(state.rawMarkdown).filter(([s]) => {
-      const nl = state.rawMarkdown.indexOf('\n', s);
-      return /^(`{3,}|~{3,})\s*mermaid\b/i.test(state.rawMarkdown.slice(s, nl === -1 ? undefined : nl));
-    });
-    const f = mfences[di];
-    if (f) {
-      const r = Core.analyzeTarget(state.rawMarkdown, { type: 'point', pos: f[0] }, md);
-      if (r.supported) { showCommentPopup({ inserts: r.inserts, rect: mermaidEl.getBoundingClientRect(), preview: 'Comment on this diagram' }); return; }
-    }
-    showNotice('Can’t annotate inside a diagram.');
-    return;
-  }
-
-  if (e.detail > 1) return;                  // part of a double/triple click
-  if (!clickedOnText(e)) return;             // clicked empty space → no dialog
-  const sel = window.getSelection();
-  if (!sel || !sel.isCollapsed) return;
-
-  // Wait past the double-click window: if a word-selection appears (double-click)
-  // the selection handler owns it; only a lone caret click drops a point comment.
-  clearTimeout(pointClickTimer);
-  pointClickTimer = setTimeout(() => {
-    const sel2 = window.getSelection();
-    if (!sel2 || !sel2.isCollapsed) return;
-    const ctx = getCaretContext(e);
-    if (!ctx) return;
-    const pos = findCaretPosInSource(ctx.beforeCtx, ctx.afterCtx);
-    if (pos == null) { showNotice('Couldn’t locate the cursor in the source — try clicking next to some text.'); return; }
-    const r = Core.analyzeTarget(state.rawMarkdown, { type: 'point', pos }, md);
-    if (!r.supported) { showNotice(r.reason || 'Can’t annotate here.'); return; }
-    const preview = r.kind === 'point' ? 'Point comment at cursor'
-      : r.kind === 'block' ? 'Comment on this block'
-      : r.kind === 'line' ? 'Comment on this line'
-      : 'Comment';
-    showCommentPopup({ inserts: r.inserts, rect: ctx.rect, preview, caretRect: ctx.rect });
-  }, 220);
-});
-
-// ── Diagram export (right-click a rendered mermaid diagram) ────────────────
-const diagramMenu = $('#diagram-menu');
-let menuSvg = null;
-
-// Rasterize a (self-contained, inline-styled) mermaid SVG to a PNG blob.
-async function svgToPngBlob(svg, scale = 2, bg = '#ffffff') {
-  const clone = svg.cloneNode(true);
-  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-  const r = svg.getBoundingClientRect();
-  const vb = svg.viewBox && svg.viewBox.baseVal;
-  const w = (vb && vb.width) || r.width || 800;
-  const h = (vb && vb.height) || r.height || 600;
-  clone.setAttribute('width', w);
-  clone.setAttribute('height', h);
-  const data = new XMLSerializer().serializeToString(clone);
-  const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(data);
-  const img = new Image();
-  await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('SVG render failed')); img.src = url; });
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.ceil(w * scale);
-  canvas.height = Math.ceil(h * scale);
-  const ctx = canvas.getContext('2d');
-  if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, canvas.width, canvas.height); }
-  ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  ctx.drawImage(img, 0, 0, w, h);
-  return await new Promise((res, rej) => canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/png'));
-}
-
-async function copyDiagramPng(svg) {
-  try {
-    const blob = await svgToPngBlob(svg);
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-    showNotice('Diagram copied as image');
-  } catch (e) { showNotice('Copy failed: ' + (e.message || e)); }
-}
-
-async function copyDiagramSvg(svg) {
-  try {
-    const clone = svg.cloneNode(true);
-    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    await navigator.clipboard.writeText(new XMLSerializer().serializeToString(clone));
-    showNotice('Diagram SVG copied');
-  } catch (e) { showNotice('Copy failed: ' + (e.message || e)); }
-}
-
-async function downloadDiagramPng(svg) {
-  try {
-    const blob = await svgToPngBlob(svg);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = (state.fileName ? state.fileName.replace(/\.[^.]+$/, '') : 'diagram') + '.png';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    showNotice('Diagram downloaded');
-  } catch (e) { showNotice('Download failed: ' + (e.message || e)); }
-}
-
-function hideDiagramMenu() { diagramMenu.classList.remove('visible'); menuSvg = null; }
-
-renderedView.addEventListener('contextmenu', (e) => {
-  const m = e.target.closest('.mermaid');
-  const svg = m && m.querySelector('svg');
-  if (!svg) return;            // not a diagram → keep the native menu
-  e.preventDefault();
-  menuSvg = svg;
-  const mw = 170, mh = 120;
-  diagramMenu.style.left = Math.min(e.clientX, window.innerWidth - mw - 8) + 'px';
-  diagramMenu.style.top = Math.min(e.clientY, window.innerHeight - mh - 8) + 'px';
-  diagramMenu.classList.add('visible');
-});
-
-diagramMenu.addEventListener('click', (e) => {
-  const act = e.target.dataset.act;
-  const svg = menuSvg;
-  hideDiagramMenu();
-  if (!act || !svg) return;
-  if (act === 'png') copyDiagramPng(svg);
-  else if (act === 'svg') copyDiagramSvg(svg);
-  else if (act === 'download') downloadDiagramPng(svg);
-});
-
-document.addEventListener('mousedown', (e) => { if (!diagramMenu.contains(e.target)) hideDiagramMenu(); });
-window.addEventListener('scroll', hideDiagramMenu, true);
-
-$('#btn-ann-save').addEventListener('click', commitAnnotation);
-$('#btn-ann-cancel').addEventListener('click', hideAnnotationPopup);
-$('#btn-edit-save').addEventListener('click', commitEdit);
-$('#btn-edit-cancel').addEventListener('click', hideEditPopup);
-
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    if (recentMenu.classList.contains('visible')) { hideRecentMenu(); return; }
-    if (diagramMenu.classList.contains('visible')) { hideDiagramMenu(); return; }
-    if (editPopup.classList.contains('visible')) { hideEditPopup(); return; }
-    if (popup.classList.contains('visible')) { hideAnnotationPopup(); return; }
-  }
-  if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
-    e.preventDefault();
-    pickFile();
-  }
-  if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
-    e.preventDefault();
-    toggleMode();
-  }
-  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-    e.preventDefault();
-    saveFile();
-  }
-});
-
-annInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commitAnnotation(); }
-});
-
-editInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commitEdit(); }
-});
-
-document.addEventListener('mousedown', (e) => {
-  if (popup.classList.contains('visible') && !popup.contains(e.target)) {
-    setTimeout(() => {
-      if (!popup.contains(document.activeElement)) hideAnnotationPopup();
-    }, 200);
-  }
-  if (editPopup.classList.contains('visible') && !editPopup.contains(e.target) && !e.target.closest('.ann-comment-badge')) {
-    hideEditPopup();
-  }
-});
-
-window.addEventListener('beforeunload', (e) => {
-  if (state.dirty) { e.preventDefault(); e.returnValue = ''; }
-});
-
-// ── Drag & drop a file anywhere on the page ────────────────
-let dragDepth = 0;
-window.addEventListener('dragenter', (e) => {
-  if ([...e.dataTransfer.items].some(i => i.kind === 'file')) {
-    dragDepth++;
-    document.body.classList.add('dragging');
-  }
-});
-window.addEventListener('dragleave', () => {
-  if (dragDepth > 0 && --dragDepth === 0) document.body.classList.remove('dragging');
-});
-window.addEventListener('dragover', (e) => e.preventDefault());
-window.addEventListener('drop', (e) => {
-  e.preventDefault();
-  dragDepth = 0;
-  document.body.classList.remove('dragging');
-  const item = [...e.dataTransfer.items].find(i => i.kind === 'file');
-  if (!item || !item.getAsFileSystemHandle) return;
-  // Grab the handle promise synchronously — DataTransfer items die with the event.
-  const handlePromise = item.getAsFileSystemHandle();
-  handlePromise.then((h) => {
-    if (!h || h.kind !== 'file') return;
-    if (!/\.(md|markdown|mdx|txt)$/i.test(h.name)) {
-      showNotice('Drop a markdown file (.md, .markdown, .mdx, .txt)');
-      return;
-    }
-    openHandle(h);
-  });
-});
-
-// ── Init ───────────────────────────────────────────────────
-$('#btn-welcome-open').addEventListener('click', pickFile);
-if (!FS_SUPPORTED) {
-  $('#browser-warning').style.display = 'block';
-  $('#btn-welcome-open').disabled = true;
-  $('#btn-open').disabled = true;
-}
-updateToolbar();
-refreshWelcomeRecent();
-tryRestoreLast();
-</script>
+<script src="app.js"></script>
 </body>
 </html>
