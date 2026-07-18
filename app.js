@@ -328,7 +328,7 @@ async function showRecentMenu() {
   recentMenu.innerHTML = '';
   const browse = document.createElement('button');
   browse.className = 'recent-browse';
-  browse.textContent = 'Browse files…';
+  browse.textContent = 'Open file…';
   browse.addEventListener('click', () => { hideRecentMenu(); pickFile(); });
   recentMenu.appendChild(browse);
   const folderBtn = document.createElement('button');
