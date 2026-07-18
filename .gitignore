@@ -1,0 +1,5 @@
+# local experiments / scratch
+.lab/
+in/
+.claude/
+__pycache__/
