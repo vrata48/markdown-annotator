@@ -660,11 +660,19 @@ function findInSource(selectedText, beforeCtx, afterCtx) {
   }
 
   if (candidates.length === 0) {
-    const collapsedSel = normalizedSel.replace(/\s+/g, ' ').trim();
-    const { collapsed, map } = collapseWithMap(src);
-    let cp = -1;
-    while ((cp = collapsed.indexOf(collapsedSel, cp + 1)) !== -1) {
-      candidates.push({ start: map[cp], end: map[cp + collapsedSel.length - 1] + 1, score: -1 });
+    // Typography-tolerant pass: markdown-it's typographer renders "x" as “x”,
+    // -- as –, ... as … — the selection carries the pretty chars while the
+    // source has the plain ones. Normalize BOTH sides the same way (with an
+    // index map back into the raw source) and search again.
+    const selNorm = normalizeTypography(normalizedSel).norm.trim();
+    const { norm, map } = normalizeTypography(src);
+    if (selNorm) {
+      let cp = -1;
+      while ((cp = norm.indexOf(selNorm, cp + 1)) !== -1) {
+        const endOut = cp + selNorm.length;
+        const end = endOut < map.length ? map[endOut] : src.length;
+        candidates.push({ start: map[cp], end, score: -1 });
+      }
     }
   }
 
@@ -684,18 +692,34 @@ function findInSource(selectedText, beforeCtx, afterCtx) {
   return candidates[0];
 }
 
-function collapseWithMap(str) {
-  const collapsed = [];
+// Canonicalize typographic characters and collapse whitespace, keeping a map
+// from each output char to its input offset. Runs of '-' and '.' collapse to
+// one char so that source `---`/`...` lines up with rendered `—`/`…`.
+function normalizeTypography(str) {
+  const out = [];
   const map = [];
   let inSpace = false;
+  let last = '';
   for (let i = 0; i < str.length; i++) {
-    if (/\s/.test(str[i])) {
-      if (!inSpace) { collapsed.push(' '); map.push(i); inSpace = true; }
-    } else {
-      collapsed.push(str[i]); map.push(i); inSpace = false;
+    let c = str[i];
+    if (c === '‘' || c === '’' || c === 'ʼ') c = "'";
+    else if (c === '“' || c === '”') c = '"';
+    else if (c === '–' || c === '—') c = '-';
+    else if (c === '…') c = '.';
+    else if (c === ' ') c = ' ';
+    if (/\s/.test(c)) {
+      if (!inSpace) { out.push(' '); map.push(i); }
+      inSpace = true;
+      last = ' ';
+      continue;
     }
+    inSpace = false;
+    if ((c === '-' || c === '.') && last === c) continue;  // collapse runs
+    out.push(c);
+    map.push(i);
+    last = c;
   }
-  return { collapsed: collapsed.join(''), map };
+  return { norm: out.join(''), map };
 }
 
 function stripMarkdownInline(s) {
