@@ -36,3 +36,4 @@ Browser-only, single-page markdown annotator. No server, no build step, no packa
 - Watch CSS specificity: `#toolbar button` (id+element) beats `#btn-x` (id) — prefix overrides with `#toolbar`.
 - Design specs for shipped features live in `docs/superpowers/specs/`.
 - `.lab/` and `in/` are local scratch — never commit them.
+- Local scripts load with `?v=N` cache-busters (`annotator-core.js?v=2`, `app.js?v=2`). Bump BOTH when either file's interface changes — stale-cache mixes (new app.js + old core) throw "X is not a function" for users on plain reload.
