@@ -181,6 +181,7 @@ function refreshAutoReloadButton() {
 $('#btn-autoreload').addEventListener('click', () => {
   try { localStorage.setItem('auto-reload', getAutoReload() ? '0' : '1'); } catch (_) {}
   refreshAutoReloadButton();
+  updateToolbar();
 });
 refreshAutoReloadButton();
 
@@ -613,7 +614,10 @@ function updateToolbar() {
   unsavedInd.style.display = state.dirty ? 'inline' : 'none';
   const noFile = !state.fileOpen;
   $('#btn-save').disabled = noFile;
-  $('#btn-refresh').disabled = noFile;
+  // With auto-reload on and nothing unsaved, the watcher already covers manual
+  // reloads; the button's only remaining job is "discard my changes".
+  $('#btn-refresh').disabled = noFile || (getAutoReload() && !state.dirty);
+  $('#btn-autoreload').disabled = noFile;
   $('#btn-mode-annotate').disabled = noFile;
   $('#btn-mode-view').disabled = noFile;
 }

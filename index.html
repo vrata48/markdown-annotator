@@ -958,6 +958,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button id="btn-open" title="Open a file (Ctrl+O)">Open file &#9662;</button>
   <button id="btn-save" title="Ctrl+S">Save</button>
   <button id="btn-refresh" title="Reload file from disk">Reload</button>
+  <button id="btn-autoreload" title="When on, external file changes reload automatically (unless you have unsaved changes)">Auto-reload: off</button>
   <div id="mode-switch" title="Ctrl+E">
     <button id="btn-mode-annotate" class="on">&#9998; Annotate</button>
     <button id="btn-mode-view">&#128065; View</button>
@@ -965,7 +966,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <span id="filename-display">No file open</span>
   <span id="unsaved-indicator">&bull; unsaved</span>
   <div class="toolbar-spacer"></div>
-  <button id="btn-autoreload" title="When on, external file changes reload automatically (unless you have unsaved changes)">Auto-reload: off</button>
   <button id="btn-theme" title="Toggle dark mode">&#127769;</button>
   <button id="annotation-count" title="Show all comments"></button>
 </div>
@@ -1066,6 +1066,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
