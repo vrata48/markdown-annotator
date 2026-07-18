@@ -145,23 +145,51 @@ async function checkDiskChange() {
   try {
     const file = await state.fileHandle.getFile();
     if (file.lastModified <= state.lastModified) return;
-    if (!state.dirty) {
-      // No local changes — pick up the new content silently, keep scroll.
+    if (!state.dirty && getAutoReload()) {
+      // Opted in and no local changes — pick up the new content silently.
       state.rawMarkdown = await file.text();
       state.lastModified = file.lastModified;
       clearUndo();
       render();
       showNotice('File changed on disk — reloaded');
     } else {
-      // Local unsaved changes would be clobbered either way; let the user pick.
       state.lastModified = file.lastModified;
-      showDiskBanner();
+      showDiskBanner(state.dirty);
     }
   } catch (_) { /* transient read failure — try again next tick */ }
 }
 
-function showDiskBanner() { $('#disk-banner').style.display = 'flex'; }
+function showDiskBanner(conflict) {
+  $('#disk-banner-msg').textContent = conflict
+    ? 'This file changed on disk and you have unsaved changes. Saving will overwrite the disk version.'
+    : 'This file changed on disk.';
+  $('#btn-disk-reload').textContent = conflict ? 'Reload from disk (discard mine)' : 'Reload';
+  $('#disk-banner').style.display = 'flex';
+}
 function hideDiskBanner() { $('#disk-banner').style.display = 'none'; }
+
+// ── Settings ────────────────────────────────────────────────
+function getAutoReload() {
+  try { return localStorage.getItem('auto-reload') === '1'; } catch (_) { return false; }
+}
+const settingsMenu = $('#settings-menu');
+$('#btn-settings').addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (settingsMenu.classList.contains('visible')) { settingsMenu.classList.remove('visible'); return; }
+  $('#opt-auto-reload').checked = getAutoReload();
+  const rect = $('#btn-settings').getBoundingClientRect();
+  settingsMenu.style.top = (rect.bottom + 4) + 'px';
+  settingsMenu.style.left = Math.min(rect.left, window.innerWidth - 290) + 'px';
+  settingsMenu.classList.add('visible');
+});
+$('#opt-auto-reload').addEventListener('change', (e) => {
+  try { localStorage.setItem('auto-reload', e.target.checked ? '1' : '0'); } catch (_) {}
+});
+document.addEventListener('mousedown', (e) => {
+  if (!settingsMenu.contains(e.target) && !e.target.closest('#btn-settings')) {
+    settingsMenu.classList.remove('visible');
+  }
+});
 
 // ── Folder mode: browse a directory of markdown files ──────
 const fileSidebar = $('#file-sidebar');

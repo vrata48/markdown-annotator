@@ -734,6 +734,25 @@ body.dragging::after {
 #disk-banner button:hover { background: var(--warn-bg); }
 #btn-disk-dismiss { border: none !important; background: none !important; font-size: 16px; padding: 2px 6px !important; }
 
+/* Settings dropdown */
+#settings-menu {
+  position: fixed;
+  z-index: 3500;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+  min-width: 260px;
+  font-size: 13px;
+}
+#settings-menu.visible { display: flex; }
+#settings-menu label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+#settings-menu input[type="checkbox"] { accent-color: var(--pen); }
+
 /* Save status flash */
 #save-status {
   position: fixed;
@@ -965,6 +984,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <span id="filename-display">No file open</span>
   <span id="unsaved-indicator">&bull; unsaved</span>
   <div class="toolbar-spacer"></div>
+  <button id="btn-settings" title="Settings">&#9881;</button>
   <button id="btn-theme" title="Toggle dark mode">&#127769;</button>
   <button id="annotation-count" title="Show all comments"></button>
 </div>
@@ -1045,9 +1065,13 @@ body.view-mode #rendered-view .content { cursor: auto; }
 </div>
 
 <div id="disk-banner">
-  <span>This file changed on disk and you have unsaved changes. Saving will overwrite the disk version.</span>
-  <button id="btn-disk-reload">Reload from disk (discard mine)</button>
+  <span id="disk-banner-msg"></span>
+  <button id="btn-disk-reload">Reload</button>
   <button id="btn-disk-dismiss" title="Dismiss">&times;</button>
+</div>
+
+<div id="settings-menu">
+  <label><input type="checkbox" id="opt-auto-reload"> Auto-reload when the file changes on disk</label>
 </div>
 
 <div id="save-status">Saved</div>
@@ -1064,6 +1088,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
