@@ -73,6 +73,9 @@ async function openHandle(handle, opts) {
     render();
     recordRecent(handle);
     startWatch();
+    // Refresh restores the file silently; a fresh tab starts on the welcome
+    // screen. sessionStorage survives reload but not new tabs — exactly that.
+    try { sessionStorage.setItem('had-file', '1'); } catch (_) {}
   } catch (e) {
     if (e && e.name === 'AbortError') return;
     if (!silent) alert('Failed to open file: ' + e.message);
@@ -87,8 +90,10 @@ async function tryRestoreLast() {
   const rec = await fetchRecent();
   if (!rec.length) return;
   const last = rec[0];
+  let wasRefresh = false;
+  try { wasRefresh = sessionStorage.getItem('had-file') === '1'; } catch (_) {}
   try {
-    if (await last.handle.queryPermission({ mode: 'readwrite' }) === 'granted') {
+    if (wasRefresh && await last.handle.queryPermission({ mode: 'readwrite' }) === 'granted') {
       await openHandle(last.handle, { silent: true });
       if (state.fileOpen) return;
     }
