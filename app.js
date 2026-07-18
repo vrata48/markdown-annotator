@@ -69,6 +69,7 @@ async function openHandle(handle, opts) {
     state.rawMarkdown = await file.text();
     state.fileHandle = handle;
     state.fileName = file.name;
+    state.displayPath = file.name;  // real paths are hidden from web pages
     state.dirty = false;
     state.fileOpen = true;
     state.lastModified = file.lastModified;
@@ -245,6 +246,8 @@ async function openFolderFile(f) {
   await openHandle(f.handle);
   if (state.fileOpen && state.fileHandle === f.handle) {
     folder.currentPath = f.path;
+    state.displayPath = folder.name + '/' + f.path;
+    updateToolbar();
     renderFileSidebar();
   }
 }
@@ -617,8 +620,8 @@ async function renderMermaid() {
 window.renderMermaid = renderMermaid;
 
 function updateToolbar() {
-  filenameDisplay.textContent = state.fileName || 'No file open';
-  filenameDisplay.title = state.fileName || '';
+  filenameDisplay.textContent = state.displayPath || state.fileName || 'No file open';
+  filenameDisplay.title = state.displayPath || state.fileName || '';
   unsavedInd.style.display = state.dirty ? 'inline' : 'none';
   const noFile = !state.fileOpen;
   $('#btn-save').disabled = noFile;
