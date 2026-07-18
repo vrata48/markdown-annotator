@@ -258,6 +258,9 @@
   function stripAnnotationHtml(html) {
     let h = html;
     h = h.replace(/<button class="ann-delete[^"]*"[^>]*>[\s\S]*?<\/button>/g, '');
+    // Unwrap the badge's inner text span FIRST — the badge regex below is lazy
+    // and would otherwise stop at the inner </span>, leaving an orphan close tag.
+    h = h.replace(/<span class="ann-badge-text">([\s\S]*?)<\/span>/g, '$1');
     h = h.replace(/<span class="ann-comment-badge[^"]*"[^>]*>[\s\S]*?<\/span>/g, '');
     h = h.replace(/<mark class="ann-highlight">([\s\S]*?)<\/mark>/g, '$1');
     h = h.replace(/<span class="ann-wrap[^"]*"[^>]*>([\s\S]*?)<\/span>/g, '$1');

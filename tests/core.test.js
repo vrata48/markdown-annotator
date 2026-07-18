@@ -113,6 +113,22 @@ test('preprocess carries kind, group and text2', () => {
   assert.equal(placeholders[1].kind, 'pair');
 });
 
+// ── isStructurePreserved (guards the whole annotate flow) ──
+// Minimal markdown-it stand-in: enough for the render→strip→compare pipeline.
+const fakeMd = { render: (s) => '<p>' + s + '</p>\n', renderInline: (s) => s };
+
+test('clean pair wrap preserves structure (strip round-trip)', () => {
+  const src = 'one two three';
+  const annotated = Core.applyInserts(src, [{ type: 'pair', start: 4, end: 7 }], 'c');
+  assert.equal(Core.isStructurePreserved(fakeMd, src, annotated), true);
+});
+
+test('point comment preserves structure', () => {
+  const src = 'one two three';
+  const annotated = Core.applyInserts(src, [{ type: 'point', pos: 3 }], 'c');
+  assert.equal(Core.isStructurePreserved(fakeMd, src, annotated), true);
+});
+
 // ── applyInserts ────────────────────────────────────────────
 test('applyInserts: single pair', () => {
   const out = Core.applyInserts('one two three', [{ type: 'pair', start: 4, end: 7 }], 'c');
