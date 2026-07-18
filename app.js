@@ -57,8 +57,11 @@ async function openHandle(handle, opts) {
   const silent = opts && opts.silent;
   if (state.dirty && !confirm('You have unsaved changes. Open another file anyway?')) return;
   try {
-    if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted' &&
-        await handle.requestPermission({ mode: 'readwrite' }) !== 'granted') {
+    // Read-only here: asking for readwrite at open time makes Chrome show a
+    // confusing "Save changes to file?" prompt. Write access is requested on
+    // the first actual save, where the prompt matches the user's intent.
+    if (await handle.queryPermission({ mode: 'read' }) !== 'granted' &&
+        await handle.requestPermission({ mode: 'read' }) !== 'granted') {
       if (!silent) showNotice('File access was not granted.');
       return;
     }
@@ -93,7 +96,7 @@ async function tryRestoreLast() {
   let wasRefresh = false;
   try { wasRefresh = sessionStorage.getItem('had-file') === '1'; } catch (_) {}
   try {
-    if (wasRefresh && await last.handle.queryPermission({ mode: 'readwrite' }) === 'granted') {
+    if (wasRefresh && await last.handle.queryPermission({ mode: 'read' }) === 'granted') {
       await openHandle(last.handle, { silent: true });
       if (state.fileOpen) return;
     }
@@ -363,6 +366,11 @@ async function saveFile() {
   savePending = true;
   const content = state.rawMarkdown;
   try {
+    if (await state.fileHandle.queryPermission({ mode: 'readwrite' }) !== 'granted' &&
+        await state.fileHandle.requestPermission({ mode: 'readwrite' }) !== 'granted') {
+      alert('Write access was not granted — the file was not saved.');
+      return;
+    }
     const writable = await state.fileHandle.createWritable();
     await writable.write(content);
     await writable.close();
