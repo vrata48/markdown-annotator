@@ -172,24 +172,17 @@ function hideDiskBanner() { $('#disk-banner').style.display = 'none'; }
 function getAutoReload() {
   try { return localStorage.getItem('auto-reload') === '1'; } catch (_) { return false; }
 }
-const settingsMenu = $('#settings-menu');
-$('#btn-settings').addEventListener('click', (e) => {
-  e.stopPropagation();
-  if (settingsMenu.classList.contains('visible')) { settingsMenu.classList.remove('visible'); return; }
-  $('#opt-auto-reload').checked = getAutoReload();
-  const rect = $('#btn-settings').getBoundingClientRect();
-  settingsMenu.style.top = (rect.bottom + 4) + 'px';
-  settingsMenu.style.left = Math.min(rect.left, window.innerWidth - 290) + 'px';
-  settingsMenu.classList.add('visible');
+function refreshAutoReloadButton() {
+  const on = getAutoReload();
+  const btn = $('#btn-autoreload');
+  btn.textContent = 'Auto-reload: ' + (on ? 'on' : 'off');
+  btn.classList.toggle('active', on);
+}
+$('#btn-autoreload').addEventListener('click', () => {
+  try { localStorage.setItem('auto-reload', getAutoReload() ? '0' : '1'); } catch (_) {}
+  refreshAutoReloadButton();
 });
-$('#opt-auto-reload').addEventListener('change', (e) => {
-  try { localStorage.setItem('auto-reload', e.target.checked ? '1' : '0'); } catch (_) {}
-});
-document.addEventListener('mousedown', (e) => {
-  if (!settingsMenu.contains(e.target) && !e.target.closest('#btn-settings')) {
-    settingsMenu.classList.remove('visible');
-  }
-});
+refreshAutoReloadButton();
 
 // ── Folder mode: browse a directory of markdown files ──────
 const fileSidebar = $('#file-sidebar');
