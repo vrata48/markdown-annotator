@@ -195,9 +195,12 @@
     const g = e.group;
     const attrs = 'data-ann-idx="' + e.i + '" data-ann-group="' + g + '"';
     const badge = '<span class="ann-comment-badge" ' + attrs + ' title="' + c + '">';
+    // Text sits in its own span: the badge is a flex container, and CSS
+    // text-overflow only ellipsizes inside a block-level child.
+    const btext = function (t) { return '<span class="ann-badge-text">' + t + '</span>'; };
     const delBtn = '<button class="ann-delete" data-ann-group="' + g + '">&times;</button>';
     if (e.kind === 'point') {
-      return '<span class="ann-wrap ann-point" ' + attrs + '>' + badge + '&#128172; ' + c + delBtn + '</span></span>';
+      return '<span class="ann-wrap ann-point" ' + attrs + '>' + badge + '&#128172; ' + btext(c) + delBtn + '</span></span>';
     }
     if (e.kind === 'del' || e.kind === 'ins' || e.kind === 'sub') {
       // Suggested edit: strike the old text, underline the new; hover reveals
@@ -219,7 +222,7 @@
       // on the group's last block); still offer a hover-× that deletes the group.
       return '<span class="ann-wrap ann-hl" ' + attrs + '>' + mark + '<button class="ann-delete ann-delete-hl" data-ann-group="' + g + '">&times;</button></span>';
     }
-    return '<span class="ann-wrap" ' + attrs + '>' + mark + badge + c + delBtn + '</span></span>';
+    return '<span class="ann-wrap" ' + attrs + '>' + mark + badge + btext(c) + delBtn + '</span></span>';
   }
 
   // Apply the mermaid fence override to a markdown-it instance (shared config).

@@ -16,7 +16,7 @@
         integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"
         integrity="sha384-wLhprpjsmjc/XYIcF+LpMxd8yS1gss6jhevOp6F6zhiIoFK6AmHtm4bGKtehTani" crossorigin="anonymous"></script>
-<script src="annotator-core.js?v=2"></script>
+<script src="annotator-core.js?v=3"></script>
 <!-- Mermaid ships as an ES module; load it, then expose it to the main (classic)
      script via window.mermaid and re-render once it's ready. Exact-version pin
      (ESM chain loads sibling modules, so SRI isn't practical here). -->
@@ -440,12 +440,18 @@ body {
   line-height: 1.6;
 }
 
+.ann-comment-badge .ann-badge-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
 .ann-comment-badge:hover {
   max-width: none;
-  white-space: normal;
   z-index: 5;
   background: var(--pen-deep);
 }
+.ann-comment-badge:hover .ann-badge-text { white-space: normal; }
 
 /* Standalone point comments (single-click) — slightly deeper pen. */
 .ann-point .ann-comment-badge { background: var(--pen-deep); }
@@ -1066,6 +1072,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>
