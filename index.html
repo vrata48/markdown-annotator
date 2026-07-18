@@ -16,7 +16,7 @@
         integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"
         integrity="sha384-wLhprpjsmjc/XYIcF+LpMxd8yS1gss6jhevOp6F6zhiIoFK6AmHtm4bGKtehTani" crossorigin="anonymous"></script>
-<script src="annotator-core.js?v=4"></script>
+<script src="annotator-core.js?v=5"></script>
 <!-- Mermaid ships as an ES module; load it, then expose it to the main (classic)
      script via window.mermaid and re-render once it's ready. Exact-version pin
      (ESM chain loads sibling modules, so SRI isn't practical here). -->
@@ -892,6 +892,32 @@ body.view-mode .ann-delete { display: none !important; }
 body.view-mode .ann-comment-badge, body.view-mode .ann-hl { cursor: default; }
 body.view-mode #rendered-view .content { cursor: auto; }
 
+/* Export dropdown */
+#export-menu {
+  position: fixed;
+  z-index: 3500;
+  display: none;
+  flex-direction: column;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 4px;
+  min-width: 180px;
+}
+#export-menu.visible { display: flex; }
+#export-menu button {
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--text);
+}
+#export-menu button:hover { background: var(--bg-secondary); }
+
 /* Recent files dropdown */
 #recent-menu {
   position: fixed;
@@ -965,6 +991,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button id="btn-save" title="Ctrl+S">Save</button>
   <button id="btn-refresh" title="Reload file from disk">Reload</button>
   <button id="btn-autoreload" title="When on, external file changes reload automatically (unless you have unsaved changes)">Auto-reload: off</button>
+  <button id="btn-export" title="Export a clean copy (annotations removed)">Export &#9662;</button>
   <div id="mode-switch" title="Ctrl+E">
     <button id="btn-mode-annotate" class="on">&#9998; Annotate</button>
     <button id="btn-mode-view">&#128065; View</button>
@@ -1065,6 +1092,12 @@ body.view-mode #rendered-view .content { cursor: auto; }
 <!-- Recent files dropdown (anchored under the ▾ toolbar button) -->
 <div id="recent-menu"></div>
 
+<!-- Export dropdown -->
+<div id="export-menu">
+  <button data-fmt="pdf">Export as PDF&hellip;</button>
+  <button data-fmt="epub">Export as EPUB</button>
+</div>
+
 <!-- Right-click menu for rendered diagrams -->
 <div id="diagram-menu">
   <button data-act="png">Copy as image</button>
@@ -1072,6 +1105,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=11"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>

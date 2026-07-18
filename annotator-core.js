@@ -92,6 +92,25 @@
     return out;
   }
 
+  // Strip ALL annotations for a clean export: comments unwrap/vanish and
+  // suggested edits revert to the original text (reject semantics). Literal
+  // CriticMarkup inside code fences is documentation, not markup — kept as-is.
+  function stripAll(src) {
+    let out = src;
+    const fences = codeFenceRanges(src);
+    const items = scanAnnotations(src);
+    for (let k = items.length - 1; k >= 0; k--) {
+      const it = items[k];
+      if (inAnyRange(it.mStart, fences)) continue;
+      let rep;
+      if (it.kind === 'point' || it.kind === 'ins') rep = '';
+      else if (it.kind === 'del' || it.kind === 'sub') rep = it.text;
+      else rep = it.text.trim();
+      out = out.slice(0, it.mStart) + rep + out.slice(it.mEnd);
+    }
+    return out;
+  }
+
   // Wrap [start,end) in a substitution suggestion {~~old~>new~~}.
   function suggestEdit(src, start, end, replacement) {
     const old = src.slice(start, end);
@@ -506,6 +525,7 @@
     scanAnnotations,
     deleteGroup,
     acceptGroup,
+    stripAll,
     suggestEdit,
     docZone,
     updateGroup,

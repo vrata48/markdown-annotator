@@ -69,6 +69,17 @@ test('updateGroup leaves suggested edits untouched', () => {
   assert.equal(Core.updateGroup(src, 0, 'nope'), src);
 });
 
+// ── stripAll (clean export) ─────────────────────────────────
+test('stripAll cleans every annotation kind, reject semantics', () => {
+  const src = '{>> doc <<}\n\nA {==hl==}{>> c <<} B {>> p <<} C {--del--} D {++ins++} E {~~old~>new~~} F';
+  assert.equal(Core.stripAll(src), '\n\nA hl B  C del D  E old F');
+});
+
+test('stripAll leaves fenced CriticMarkup examples alone', () => {
+  const src = '```\n{>> literal example <<}\n```\n{>> real <<}';
+  assert.equal(Core.stripAll(src), '```\n{>> literal example <<}\n```\n');
+});
+
 // ── suggestEdit ─────────────────────────────────────────────
 test('suggestEdit wraps range as substitution', () => {
   const src = 'hello world!';

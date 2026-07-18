@@ -629,6 +629,7 @@ function updateToolbar() {
   // reloads; the button's only remaining job is "discard my changes".
   $('#btn-refresh').disabled = noFile || (getAutoReload() && !state.dirty);
   $('#btn-autoreload').disabled = noFile;
+  $('#btn-export').disabled = noFile;
   $('#btn-mode-annotate').disabled = noFile;
   $('#btn-mode-view').disabled = noFile;
 }
@@ -1039,6 +1040,158 @@ $('#btn-refresh').addEventListener('click', async () => {
   if (!state.fileOpen) return;
   if (state.dirty && !confirm('You have unsaved changes. Reload anyway?')) return;
   await reloadFromDisk();
+});
+
+// ── Export (PDF via print, EPUB via JSZip) ──────────────────
+// Exports are CLEAN: comments removed, suggested edits reverted to the
+// original text (Core.stripAll).
+const EXPORT_CSS = `
+  body { font-family: Charter, "Sitka Text", Cambria, Georgia, serif; font-size: 12pt;
+         line-height: 1.6; color: #222; max-width: 46em; margin: 2em auto; padding: 0 1em; }
+  h1 { font-size: 1.8em; line-height: 1.25; }
+  h2 { font-size: 1.4em; border-bottom: 1px solid #ccc; padding-bottom: 0.2em; }
+  h3 { font-size: 1.15em; }
+  pre { background: #f5f4f0; border: 1px solid #ddd; border-radius: 4px; padding: 10px 12px;
+        font-size: 0.85em; overflow-x: auto; white-space: pre-wrap; }
+  code { font-family: Consolas, monospace; font-size: 0.9em; }
+  blockquote { border-left: 3px solid #888; margin-left: 0; padding-left: 1em; color: #444; }
+  table { border-collapse: collapse; }
+  th, td { border: 1px solid #bbb; padding: 5px 9px; text-align: left; }
+  img, svg { max-width: 100%; height: auto; }
+  a { color: #35507B; }
+`;
+
+// Render the clean document to HTML with mermaid diagrams as inline SVG.
+async function buildCleanHtml() {
+  const clean = Core.stripAll(state.rawMarkdown);
+  const container = document.createElement('div');
+  container.innerHTML = md.render(clean);
+  for (const el of container.querySelectorAll('.mermaid')) {
+    try {
+      const { svg } = await window.mermaid.render('exp-' + (mermaidSeq++), el.textContent);
+      el.innerHTML = svg;
+    } catch (_) { /* leave the code text visible */ }
+  }
+  return container;
+}
+
+function exportBaseName() {
+  return (state.fileName || 'document').replace(/\.(md|markdown|mdx|txt)$/i, '');
+}
+
+async function exportPdf() {
+  const container = await buildCleanHtml();
+  const win = window.open('', '_blank');
+  if (!win) { alert('Popup was blocked — allow popups to export PDF.'); return; }
+  win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>' +
+    Core.escapeHtml(exportBaseName()) + '</title><style>' + EXPORT_CSS + '</style></head><body>' +
+    container.innerHTML + '</body></html>');
+  win.document.close();
+  // Give the new window a beat to lay out before the print dialog.
+  setTimeout(() => { win.focus(); win.print(); }, 400);
+}
+
+let jszipPromise = null;
+function loadJSZip() {
+  if (window.JSZip) return Promise.resolve();
+  if (!jszipPromise) {
+    jszipPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+      s.integrity = 'sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG';
+      s.crossOrigin = 'anonymous';
+      s.onload = resolve;
+      s.onerror = () => { jszipPromise = null; reject(new Error('Failed to load JSZip')); };
+      document.head.appendChild(s);
+    });
+  }
+  return jszipPromise;
+}
+
+// Serialize rendered HTML as XHTML (EPUB is XML — void tags must self-close).
+function toXhtml(container) {
+  const doc = document.implementation.createHTMLDocument('');
+  const div = doc.createElement('div');
+  div.innerHTML = container.innerHTML;
+  const xml = new XMLSerializer().serializeToString(div);
+  return xml.replace(/^<div[^>]*>/, '').replace(/<\/div>$/, '');
+}
+
+async function exportEpub() {
+  try {
+    await loadJSZip();
+    const container = await buildCleanHtml();
+    const title = exportBaseName();
+    const bodyXhtml = toXhtml(container);
+    const uuid = 'urn:uuid:' + crypto.randomUUID();
+
+    const chapter = '<?xml version="1.0" encoding="utf-8"?>\n' +
+      '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">' +
+      '<head><title>' + Core.escapeHtml(title) + '</title>' +
+      '<link rel="stylesheet" type="text/css" href="styles.css"/></head>' +
+      '<body>' + bodyXhtml + '</body></html>';
+
+    const nav = '<?xml version="1.0" encoding="utf-8"?>\n' +
+      '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">' +
+      '<head><title>Contents</title></head><body>' +
+      '<nav epub:type="toc"><h1>Contents</h1><ol><li><a href="chapter.xhtml">' +
+      Core.escapeHtml(title) + '</a></li></ol></nav></body></html>';
+
+    const opf = '<?xml version="1.0" encoding="utf-8"?>\n' +
+      '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">' +
+      '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">' +
+      '<dc:identifier id="uid">' + uuid + '</dc:identifier>' +
+      '<dc:title>' + Core.escapeHtml(title) + '</dc:title>' +
+      '<dc:language>en</dc:language>' +
+      '<meta property="dcterms:modified">' + new Date().toISOString().replace(/\.\d+Z$/, 'Z') + '</meta>' +
+      '</metadata><manifest>' +
+      '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>' +
+      '<item id="ch" href="chapter.xhtml" media-type="application/xhtml+xml" properties="svg"/>' +
+      '<item id="css" href="styles.css" media-type="text/css"/>' +
+      '</manifest><spine><itemref idref="ch"/></spine></package>';
+
+    const zip = new JSZip();
+    zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
+    zip.file('META-INF/container.xml',
+      '<?xml version="1.0" encoding="utf-8"?>\n' +
+      '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">' +
+      '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>' +
+      '</rootfiles></container>');
+    zip.file('OEBPS/content.opf', opf);
+    zip.file('OEBPS/nav.xhtml', nav);
+    zip.file('OEBPS/chapter.xhtml', chapter);
+    zip.file('OEBPS/styles.css', EXPORT_CSS);
+
+    const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/epub+zip' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = title + '.epub';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  } catch (e) {
+    alert('EPUB export failed: ' + e.message);
+  }
+}
+
+const exportMenu = $('#export-menu');
+$('#btn-export').addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (exportMenu.classList.contains('visible')) { exportMenu.classList.remove('visible'); return; }
+  const rect = $('#btn-export').getBoundingClientRect();
+  exportMenu.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
+  exportMenu.style.top = (rect.bottom + 4) + 'px';
+  exportMenu.classList.add('visible');
+});
+exportMenu.addEventListener('click', (e) => {
+  const fmt = e.target.dataset.fmt;
+  exportMenu.classList.remove('visible');
+  if (fmt === 'pdf') exportPdf();
+  else if (fmt === 'epub') exportEpub();
+});
+document.addEventListener('mousedown', (e) => {
+  if (!exportMenu.contains(e.target) && !e.target.closest('#btn-export')) {
+    exportMenu.classList.remove('visible');
+  }
 });
 
 // ── Theme (light / dark) ───────────────────────────────────
