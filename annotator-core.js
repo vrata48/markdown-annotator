@@ -276,12 +276,15 @@
   // remains must equal the un-annotated render iff formatting wasn't broken.
   function stripAnnotationHtml(html) {
     let h = html;
-    h = h.replace(/<button class="ann-delete[^"]*"[^>]*>[\s\S]*?<\/button>/g, '');
-    // Unwrap the badge's inner text span FIRST — the badge regex below is lazy
-    // and would otherwise stop at the inner </span>, leaving an orphan close tag.
+    // Innermost first — every regex is lazy, so nested spans must be gone
+    // before their parent is matched or the parent stops at the wrong </span>.
+    h = h.replace(/<button class="ann-(?:delete|accept|reject)[^"]*"[^>]*>[\s\S]*?<\/button>/g, '');
     h = h.replace(/<span class="ann-badge-text">([\s\S]*?)<\/span>/g, '$1');
+    h = h.replace(/<span class="ann-edit-controls">\s*<\/span>/g, '');
     h = h.replace(/<span class="ann-comment-badge[^"]*"[^>]*>[\s\S]*?<\/span>/g, '');
     h = h.replace(/<mark class="ann-highlight">([\s\S]*?)<\/mark>/g, '$1');
+    h = h.replace(/<del class="ann-del">([\s\S]*?)<\/del>/g, '$1');
+    h = h.replace(/<ins class="ann-ins">([\s\S]*?)<\/ins>/g, '$1');
     h = h.replace(/<span class="ann-wrap[^"]*"[^>]*>([\s\S]*?)<\/span>/g, '$1');
     h = h.replace(/[​]/g, '');
     h = h.replace(/<p>\s*<\/p>/g, '');

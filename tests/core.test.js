@@ -134,6 +134,18 @@ test('clean pair wrap preserves structure (strip round-trip)', () => {
   assert.equal(Core.isStructurePreserved(fakeMd, src, annotated), true);
 });
 
+test('annotating next to an existing suggestion still preserves structure', () => {
+  const src = 'plan ships {~~next month~>in September~~} for beta users';
+  const annotated = Core.applyInserts(src, [{ type: 'pair', start: 0, end: 4 }], 'c');
+  assert.equal(Core.isStructurePreserved(fakeMd, src, annotated), true);
+});
+
+test('annotating next to existing del/ins still preserves structure', () => {
+  const src = 'keep {--old--} and {++new++} words';
+  const annotated = Core.applyInserts(src, [{ type: 'pair', start: 0, end: 4 }], 'c');
+  assert.equal(Core.isStructurePreserved(fakeMd, src, annotated), true);
+});
+
 test('point comment preserves structure', () => {
   const src = 'one two three';
   const annotated = Core.applyInserts(src, [{ type: 'point', pos: 3 }], 'c');

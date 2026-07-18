@@ -4,6 +4,8 @@ A browser-only tool for reviewing markdown documents like a proofreader: highlig
 
 **No server, no build, no install.** Serve the folder from any static host and start annotating files on your own disk.
 
+![Demo — annotating, suggested edits, sidebar, dark mode, export](docs/screenshots/demo.gif)
+
 ![Markdown Annotator, light theme](docs/screenshots/annotator-light.png)
 
 ## Why
