@@ -6,8 +6,6 @@ A browser-only tool for reviewing markdown documents like a proofreader: highlig
 
 ![Demo — annotating, suggested edits, sidebar, dark mode, export](docs/screenshots/demo.gif)
 
-![Markdown Annotator, light theme](docs/screenshots/annotator-light.png)
-
 ## Why
 
 Reviewing LLM-generated (or human-written) markdown usually means pasting text back and forth. This tool keeps the feedback *in the file*: comments and suggested edits live in the markdown source as plain-text CriticMarkup, so an LLM working in the same folder can read your notes, address them, and rewrite the file — which the annotator picks up and shows you for the next round.
@@ -39,8 +37,6 @@ Reviewing LLM-generated (or human-written) markdown usually means pasting text b
 
 ### Comfort
 - **Dark mode** (🌙, follows system preference), **installable as a PWA** (registers as a `.md` handler; installed apps also get persistent file permissions, so restores are silent), **mermaid diagrams** rendered inline with right-click copy/download as image, **code highlighting** via highlight.js.
-
-![Markdown Annotator, dark theme](docs/screenshots/annotator-dark.png)
 
 ## The LLM workflow
 
