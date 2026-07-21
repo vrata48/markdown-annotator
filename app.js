@@ -595,6 +595,7 @@ function render() {
   const groups = new Set(placeholders.map(p => p.group)).size;
   annCount.textContent = groups > 0 ? `${groups} annotation${groups > 1 ? 's' : ''}` : '';
 
+  initTableResize();
   renderMermaid();
 }
 
@@ -618,6 +619,87 @@ async function renderMermaid() {
   }
 }
 window.renderMermaid = renderMermaid;
+
+// ── Table column resizing ──────────────────────────────────
+// Each rendered table gets drag grips on the header-cell borders. Widths are
+// view-only: kept in memory as percentages per file+table so they survive the
+// full innerHTML rebuild every render() does, but never touch the source and
+// don't persist across page loads. Grips carry no text, so the Range-based
+// selection→source mapping never sees them.
+const tableWidths = new Map();
+const COL_MIN_PX = 48;
+
+function tableResizeKey(idx, colCount) {
+  // Column count in the key invalidates saved widths if the table's structure
+  // changes (e.g. an accepted suggested edit adds a column).
+  return state.fileName + '::' + idx + '::' + colCount;
+}
+
+function applyColWidths(table, cells, widths) {
+  table.style.tableLayout = 'fixed';
+  cells.forEach((c, i) => { if (widths[i] != null) c.style.width = widths[i] + '%'; });
+}
+
+function initTableResize() {
+  contentEl.querySelectorAll('table').forEach((table, idx) => {
+    const headRow = table.querySelector('tr');
+    if (!headRow) return;
+    const cells = [...headRow.children];
+    if (cells.length < 2) return;
+    const key = tableResizeKey(idx, cells.length);
+    const saved = tableWidths.get(key);
+    if (saved) applyColWidths(table, cells, saved);
+    cells.forEach((cell, i) => {
+      if (i === cells.length - 1) return;  // outer edge: nothing to trade width with
+      const grip = document.createElement('span');
+      grip.className = 'col-grip';
+      grip.addEventListener('click', (e) => e.stopPropagation());
+      grip.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        tableWidths.delete(key);
+        table.style.tableLayout = '';
+        cells.forEach((c) => { c.style.width = ''; });
+      });
+      grip.addEventListener('pointerdown', (e) => startColDrag(e, grip, table, cells, i, key));
+      cell.appendChild(grip);
+    });
+  });
+}
+
+function startColDrag(e, grip, table, cells, i, key) {
+  e.preventDefault();
+  e.stopPropagation();
+  const startX = e.clientX;
+  const tableW = table.getBoundingClientRect().width;
+  const leftW = cells[i].getBoundingClientRect().width;
+  const rightW = cells[i + 1].getBoundingClientRect().width;
+  // Freeze every column at its current percentage first, so only the dragged
+  // pair moves and the rest of the table stays put.
+  const widths = tableWidths.get(key) ||
+    cells.map((c) => c.getBoundingClientRect().width / tableW * 100);
+  applyColWidths(table, cells, widths);
+  grip.setPointerCapture(e.pointerId);
+  grip.classList.add('dragging');
+  document.body.classList.add('col-resizing');
+  const onMove = (ev) => {
+    const d = Math.max(-(leftW - COL_MIN_PX), Math.min(rightW - COL_MIN_PX, ev.clientX - startX));
+    widths[i] = (leftW + d) / tableW * 100;
+    widths[i + 1] = (rightW - d) / tableW * 100;
+    cells[i].style.width = widths[i] + '%';
+    cells[i + 1].style.width = widths[i + 1] + '%';
+  };
+  const onUp = () => {
+    grip.classList.remove('dragging');
+    document.body.classList.remove('col-resizing');
+    grip.removeEventListener('pointermove', onMove);
+    grip.removeEventListener('pointerup', onUp);
+    grip.removeEventListener('pointercancel', onUp);
+    tableWidths.set(key, widths);
+  };
+  grip.addEventListener('pointermove', onMove);
+  grip.addEventListener('pointerup', onUp);
+  grip.addEventListener('pointercancel', onUp);
+}
 
 function updateToolbar() {
   filenameDisplay.textContent = state.displayPath || state.fileName || 'No file open';
