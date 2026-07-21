@@ -384,6 +384,17 @@ body {
 .content li { margin: 0.25em 0; }
 .content blockquote { margin: 0.8em 0; padding: 0.5em 1.1em; border-left: 3px solid var(--pen); background: var(--pen-wash); color: var(--pen-deep); border-radius: 0 4px 4px 0; }
 .content pre { margin: 0.9em 0; padding: 16px 18px; background: var(--code-bg); border: 1px solid var(--desk-deep); border-radius: 6px; overflow-x: auto; font-size: 13.5px; line-height: 1.55; }
+.code-wrap { position: relative; }
+.code-copy {
+  position: absolute; top: 9px; right: 9px; padding: 5px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--desk); border: 1px solid var(--desk-deep); border-radius: 5px;
+  color: var(--ink); cursor: pointer; opacity: 0; transition: opacity 0.15s;
+}
+.code-wrap:hover .code-copy, .code-copy:focus-visible, .code-copy.copied { opacity: 1; }
+.code-copy:hover { border-color: var(--pen); color: var(--pen); }
+.code-copy.copied { color: var(--pen); border-color: var(--pen); }
+.code-copy svg { width: 14px; height: 14px; display: block; }
 .content code { font-family: var(--font-mono); font-size: 0.85em; }
 .content :not(pre) > code { background: var(--code-inline-bg); border: 1px solid var(--desk-deep); padding: 1px 5px; border-radius: 4px; font-size: 0.8em; }
 .content table { border-collapse: collapse; margin: 0.9em 0; width: 100%; font-size: 0.92em; }
@@ -1125,6 +1136,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>

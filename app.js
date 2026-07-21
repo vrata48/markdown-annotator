@@ -596,6 +596,7 @@ function render() {
   annCount.textContent = groups > 0 ? `${groups} annotation${groups > 1 ? 's' : ''}` : '';
 
   initTableResize();
+  initCodeCopy();
   renderMermaid();
 }
 
@@ -699,6 +700,44 @@ function startColDrag(e, grip, table, cells, i, key) {
   grip.addEventListener('pointermove', onMove);
   grip.addEventListener('pointerup', onUp);
   grip.addEventListener('pointercancel', onUp);
+}
+
+// ── Code block copy buttons ────────────────────────────────
+// Each <pre> gets a hover copy button. Icon-only (no text nodes), so the
+// Range-based selection→source mapping never picks it up as context.
+const COPY_ICON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3.5v5A1.5 1.5 0 0 0 4 10h1.5"/></svg>';
+const CHECK_ICON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg>';
+
+function initCodeCopy() {
+  contentEl.querySelectorAll('pre').forEach((pre) => {
+    if (pre.closest('.mermaid')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'code-wrap';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'code-copy';
+    btn.title = 'Copy code';
+    btn.setAttribute('aria-label', 'Copy code');
+    btn.innerHTML = COPY_ICON;
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const code = pre.querySelector('code') || pre;
+      // Annotations can live inside code blocks; strip their UI chrome so
+      // only the actual code text is copied.
+      const clone = code.cloneNode(true);
+      clone.querySelectorAll('.ann-comment-badge, .ann-delete, .ann-accept, .ann-reject')
+        .forEach((n) => n.remove());
+      try {
+        await navigator.clipboard.writeText(clone.textContent.replace(/\n$/, ''));
+      } catch (_) { return; }
+      btn.classList.add('copied');
+      btn.innerHTML = CHECK_ICON;
+      setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = COPY_ICON; }, 1500);
+    });
+    wrap.appendChild(btn);
+  });
 }
 
 function updateToolbar() {
