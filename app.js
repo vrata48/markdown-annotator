@@ -595,6 +595,7 @@ function render() {
   const groups = new Set(placeholders.map(p => p.group)).size;
   annCount.textContent = groups > 0 ? `${groups} annotation${groups > 1 ? 's' : ''}` : '';
 
+  initTableWrap();
   initTableResize();
   initCodeCopy();
   renderMermaid();
@@ -620,6 +621,21 @@ async function renderMermaid() {
   }
 }
 window.renderMermaid = renderMermaid;
+
+// ── Table overflow wrappers ────────────────────────────────
+// A table whose min-content width exceeds the paper (e.g. long unbreakable
+// code-span chains in cells) scrolls inside its own container instead of
+// bursting out of the page — same idea as .code-wrap around <pre>. The
+// wrapper carries no text, so the Range-based selection→source mapping
+// never sees it.
+function initTableWrap() {
+  contentEl.querySelectorAll('table').forEach((table) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'table-wrap';
+    table.parentNode.insertBefore(wrap, table);
+    wrap.appendChild(table);
+  });
+}
 
 // ── Table column resizing ──────────────────────────────────
 // Each rendered table gets drag grips on the header-cell borders. Widths are
@@ -1176,8 +1192,10 @@ const EXPORT_CSS = `
         font-size: 0.85em; overflow-x: auto; white-space: pre-wrap; }
   code { font-family: Consolas, monospace; font-size: 0.9em; }
   blockquote { border-left: 3px solid #888; margin-left: 0; padding-left: 1em; color: #444; }
-  table { border-collapse: collapse; }
-  th, td { border: 1px solid #bbb; padding: 5px 9px; text-align: left; }
+  /* Print/EPUB can't scroll: cells must be allowed to break long unbreakable
+     runs (code-span chains) or a wide table clips at the page edge. */
+  table { border-collapse: collapse; max-width: 100%; }
+  th, td { border: 1px solid #bbb; padding: 5px 9px; text-align: left; overflow-wrap: anywhere; }
   img, svg { max-width: 100%; height: auto; }
   a { color: #35507B; }
 `;
