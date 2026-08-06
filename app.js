@@ -299,9 +299,21 @@ async function recordRecent(handle) {
   } catch (e) { /* recents are best-effort */ }
 }
 
+async function clearRecents() {
+  try {
+    const db = await idbOpen();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).clear();
+    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+    db.close();
+  } catch (_) { /* best-effort, like the rest of recents */ }
+  refreshWelcomeRecent();
+}
+
 // ── Recent files UI ────────────────────────────────────────
 const recentMenu = $('#recent-menu');
 const welcomeRecent = $('#welcome-recent');
+$('#btn-clear-recent').addEventListener('click', clearRecents);
 
 function recentItemButton(f) {
   const btn = document.createElement('button');
@@ -324,6 +336,13 @@ async function showRecentMenu() {
   recentMenu.innerHTML = '';
   if (files.length > 0) {
     files.forEach(f => recentMenu.appendChild(recentItemButton(f)));
+    const sep = document.createElement('div');
+    sep.className = 'recent-sep';
+    recentMenu.appendChild(sep);
+    const clear = document.createElement('button');
+    clear.textContent = 'Clear recents';
+    clear.addEventListener('click', () => { hideRecentMenu(); clearRecents(); });
+    recentMenu.appendChild(clear);
   } else {
     const none = document.createElement('button');
     none.textContent = 'No recent files';

@@ -716,6 +716,7 @@ body.view-mode .ann-edit-controls { display: none !important; }
   padding: 0;
 }
 #welcome .tagline { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 24px; }
+#welcome .local-note { text-decoration: underline; text-underline-offset: 3px; }
 #welcome .kbd-row {
   margin-top: 24px;
   padding-top: 18px;
@@ -982,6 +983,9 @@ body.view-mode #rendered-view .content { cursor: auto; }
   text-align: left;
 }
 #welcome-recent h3 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -989,7 +993,19 @@ body.view-mode #rendered-view .content { cursor: auto; }
   color: var(--ink-soft);
   margin-bottom: 6px;
 }
-#welcome-recent button {
+#btn-clear-recent {
+  border: none;
+  background: none;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-ui);
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 0 2px;
+}
+#btn-clear-recent:hover { color: var(--danger); }
+#welcome-recent-list button {
   display: flex;
   align-items: baseline;
   gap: 12px;
@@ -1005,7 +1021,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
   color: var(--text);
   overflow: hidden;
 }
-#welcome-recent button:hover { background: var(--bg-secondary); }
+#welcome-recent-list button:hover { background: var(--bg-secondary); }
 #welcome-recent .recent-name {
   font-weight: 600;
   flex: 1;
@@ -1079,10 +1095,10 @@ body.view-mode #rendered-view .content { cursor: auto; }
             <div class="welcome-mark">&lsaquo;&rsaquo;</div>
             <h2>Markdown Annotator</h2>
           </div>
-          <p class="tagline">Highlight passages, leave comments, and suggest edits &mdash; your feedback lives in the file itself as plain-text CriticMarkup, ready for any person or LLM to act on.</p>
+          <p class="tagline">Highlight passages, leave comments, and suggest edits &mdash; your feedback lives in the file itself as plain-text CriticMarkup, ready for any person or LLM to act on. <span class="local-note">Everything happens on your computer: files are opened and saved locally, and nothing is ever sent to the internet.</span></p>
           <div id="browser-warning">This app needs Chrome or Edge &mdash; it opens and saves files on your computer through the File System Access API, which this browser doesn't support.</div>
           <div id="welcome-recent">
-            <h3>Recent</h3>
+            <h3>Recent <button id="btn-clear-recent" title="Forget all recent files">Clear</button></h3>
             <div id="welcome-recent-list"></div>
           </div>
           <p class="kbd-row">
@@ -1147,6 +1163,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=24"></script>
+<script src="app.js?v=25"></script>
 </body>
 </html>
