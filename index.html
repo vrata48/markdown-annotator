@@ -271,84 +271,6 @@ body.dirty #rail .rail-dot { display: block; }
 .file-item.current { background: var(--pen-wash); color: var(--pen); font-weight: 600; }
 .file-empty { padding: 14px; font-size: 12.5px; color: var(--ink-soft); text-align: center; }
 
-/* Margin comment rail — cards anchored beside the text they reference */
-#margin-rail {
-  position: relative;
-  min-width: 0;
-}
-#margin-rail .rail-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-  padding: 8px 2px;
-}
-.mnote {
-  position: absolute;
-  left: 0;
-  width: 100%;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--mark-edge);
-  border-radius: 8px;
-  padding: 9px 11px;
-  box-shadow: var(--card-shadow);
-  font-size: 13px;
-  line-height: 1.5;
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.mnote:hover, .mnote.hot { border-color: var(--pen); border-left-color: var(--pen); }
-.mnote.m-edit { border-left-color: var(--ok); }
-.mnote.m-point { border-left-color: var(--pen); }
-.mnote .m-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 11px;
-  color: var(--ink-soft);
-  margin-bottom: 4px;
-}
-.mnote .m-head b { color: var(--ink); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; font-size: 10.5px; }
-.mnote .m-quote {
-  font-size: 11.5px;
-  color: var(--ink-soft);
-  font-style: italic;
-  border-left: 2px solid var(--line);
-  padding-left: 7px;
-  margin-bottom: 5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mnote .m-x {
-  border: none; background: none;
-  color: var(--ink-soft);
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  padding: 0 2px;
-  visibility: hidden;
-}
-.mnote:hover .m-x { visibility: visible; }
-.mnote .m-x:hover { color: var(--danger); }
-.mnote .m-actions { display: flex; gap: 6px; margin-top: 7px; }
-.mnote .m-actions button {
-  font-size: 11px; font-weight: 600;
-  border-radius: 5px;
-  padding: 3px 10px;
-  cursor: pointer;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--ink-soft);
-}
-.mnote .m-accept { color: var(--ok); border-color: var(--ok); }
-.mnote .m-reject { color: var(--red-pen); }
-.mnote .m-actions button:hover { background: var(--desk); }
-body.view-mode .mnote .m-x,
-body.view-mode .mnote .m-actions { display: none; }
-body.view-mode .mnote { cursor: default; }
 
 /* Flash target annotation after a margin-card jump */
 @keyframes ann-flash-kf { 0%, 60% { outline-color: var(--mark-edge); } 100% { outline-color: transparent; } }
@@ -367,15 +289,7 @@ body.view-mode .mnote { cursor: default; }
   flex: 1;
   overflow-y: auto;
   padding: 24px 28px 80px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 0 24px;
-  align-content: start;
-  align-items: start;
 }
-/* No annotations (or no file): the margin collapses, the sheet takes the row */
-body:not(.has-notes) #rendered-view { grid-template-columns: minmax(0, 1fr); }
-body:not(.has-notes) #margin-rail { display: none; }
 
 /* File tab — identity rides the sheet, not the chrome */
 #doc-col { min-width: 0; }
@@ -524,27 +438,43 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
   cursor: default;
 }
 
-/* Comments live in the margin rail now: highlight groups get no inline badge
-   (the highlight itself is the anchor and click target); point comments keep
-   a compact dot marker, since they have no highlighted text to stand on. */
-.ann-comment-badge { display: none; }
-.ann-point .ann-comment-badge {
+/* Comments appear directly in the document as badges beside their passage. */
+.ann-comment-badge {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   background: var(--pen);
   color: var(--on-pen);
   font-size: 11px;
+  font-weight: 500;
   font-family: var(--font-ui);
-  padding: 1px 6px;
+  padding: 1px 8px;
   border-radius: 10px;
-  margin-left: 3px;
+  margin-left: 4px;
   cursor: pointer;
   vertical-align: middle;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   position: relative;
-  line-height: 1.5;
+  line-height: 1.6;
 }
-.ann-point .ann-comment-badge .ann-badge-text { display: none; }
-.ann-point .ann-comment-badge:hover { background: var(--pen-deep); }
+.ann-comment-badge .ann-badge-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.ann-comment-badge:hover {
+  max-width: none;
+  z-index: 5;
+  background: var(--pen-deep);
+}
+.ann-comment-badge:hover .ann-badge-text { white-space: normal; }
+
+/* Standalone point comments (single-click) — slightly deeper pen. */
+.ann-point .ann-comment-badge { background: var(--pen-deep); }
 /* Whole highlight is clickable → edit */
 .ann-wrap:not(.ann-edit) { cursor: pointer; }
 
@@ -598,21 +528,6 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 .ann-reject { color: var(--red-pen); }
 .ann-edit-controls button:hover { background: var(--desk); }
 body.view-mode .ann-edit-controls { display: none !important; }
-
-/* Comment / Suggest-edit tabs in the annotation popup */
-.popup-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
-.popup-tabs button {
-  border: none;
-  background: transparent;
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.popup-tabs button.on { background: var(--pen-wash); color: var(--pen-deep); }
-.popup-tabs button:disabled { display: none; }
 
 /* Annotation popup */
 #annotation-popup {
@@ -1109,17 +1024,10 @@ body.view-mode #rendered-view .content { cursor: auto; }
           </p>
       </div>
     </div>
-    <div id="margin-rail">
-      <div class="rail-label">Comments</div>
-    </div>
   </div>
 </div>
 
 <div id="annotation-popup">
-  <div class="popup-tabs" id="popup-tabs">
-    <button id="tab-comment" class="on">Comment</button>
-    <button id="tab-suggest">Suggest edit</button>
-  </div>
   <div class="selected-preview" id="selected-preview"></div>
   <textarea id="annotation-input" placeholder="Add your comment..."></textarea>
   <div class="btn-row">
@@ -1163,6 +1071,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=25"></script>
+<script src="app.js?v=27"></script>
 </body>
 </html>

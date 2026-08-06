@@ -33,7 +33,12 @@ Retires the warm-parchment "proofreader's desk" identity. Mockups iterated in-co
 - File identity moved off the chrome: a tab clipped to the top of the sheet shows
   name/path + unsaved dot (`#file-tab`, visible via `body.file-open`).
 
-## Margin comment rail (replaces the overlay sidebar + inline badges)
+## Margin comment rail — REVERTED 2026-08-06
+
+Built as below, shipped, then removed on user preference: comments should appear
+directly in the document. Inline badges (the pre-redesign pattern, restyled in the
+cool-ink palette) are back; the whole `.ann-wrap` stays the click-to-edit target and the
+rail's comment counter jumps to the first annotation. Kept for the record:
 
 - `#rendered-view` is a two-column grid: `minmax(0, 1fr)` sheet + `300px` `#margin-rail`.
   The sheet stretches the full width (an 880px cap was tried and rejected — the original
@@ -62,6 +67,13 @@ global drag-drop only. A floating
 frameless version was tried and rejected. `#welcome` is a *sibling* of `.content`, toggled
 by `body.file-open` — it must not live inside the sheet, or the first render destroys it
 (matters for the file tab's × close button, which returns here).
+
+## Later trims (2026-08-06)
+
+- Margin rail reverted to inline badges (above).
+- Annotation popup simplified to comment-only: the "Suggest edit" tab was removed. The app
+  still renders + accepts/rejects suggested edits present in the file (the LLM loop);
+  it just no longer authors them.
 
 ## Not done (considered, deferred)
 

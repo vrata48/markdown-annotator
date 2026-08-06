@@ -416,7 +416,6 @@ function closeFile() {
   hideEditPopup();
   hideDiskBanner();
   contentEl.innerHTML = '';
-  renderMarginRail();          // clears the cards and the has-notes class
   annCountBadge.textContent = '';
   setMode('annotate');
   if (folder) { folder.currentPath = null; renderFileSidebar(); }
@@ -427,145 +426,7 @@ function closeFile() {
 }
 $('#btn-close-file').addEventListener('click', closeFile);
 
-// ── Margin comment rail ────────────────────────────────────
-// Cards render from scanAnnotations (one per group) into the grid column next
-// to the sheet, then a position pass aligns each card with its anchor in the
-// rendered text — overlapping cards push down.
-const marginRail = $('#margin-rail');
-
-function sideTrunc(s, n) {
-  s = s.replace(/\s+/g, ' ').trim();
-  return s.length > n ? s.slice(0, n) + '…' : s;
-}
-
-function setGroupHot(group, hot) {
-  contentEl.querySelectorAll('.ann-wrap[data-ann-group="' + group + '"]')
-    .forEach(el => el.classList.toggle('hot', hot));
-}
-
-function renderMarginRail() {
-  marginRail.querySelectorAll('.mnote').forEach(n => n.remove());
-  const seen = new Set();
-  const items = !state.fileOpen ? [] : Core.scanAnnotations(state.rawMarkdown).filter(it => {
-    if (seen.has(it.group)) return false;
-    seen.add(it.group);
-    return true;
-  });
-  document.body.classList.toggle('has-notes', items.length > 0);
-  if (!items.length) { marginRail.style.height = ''; return; }
-
-  for (const it of items) {
-    const group = it.group;
-    const isEdit = it.kind === 'del' || it.kind === 'ins' || it.kind === 'sub';
-    const card = document.createElement('div');
-    card.className = 'mnote' + (isEdit ? ' m-edit' : it.kind === 'point' ? ' m-point' : '');
-    card.dataset.annGroup = group;
-
-    const head = document.createElement('div');
-    head.className = 'm-head';
-    const label = document.createElement('b');
-    label.textContent = isEdit ? 'Suggested edit' : it.kind === 'point' ? 'Note' : 'Comment';
-    const x = document.createElement('button');
-    x.className = 'm-x';
-    x.innerHTML = '&times;';
-    x.title = isEdit ? 'Reject suggestion' : 'Delete comment';
-    x.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (state.mode === 'view') return;
-      deleteAnnotation(group);
-    });
-    head.append(label, x);
-    card.appendChild(head);
-
-    const body = document.createElement('div');
-    if (it.kind === 'point') {
-      body.textContent = sideTrunc(it.comment, 220);
-    } else if (it.kind === 'pair' || it.kind === 'highlight') {
-      const q = document.createElement('div');
-      q.className = 'm-quote';
-      q.textContent = sideTrunc(it.text, 60);
-      card.appendChild(q);
-      body.textContent = sideTrunc(Core.getGroupComment(state.rawMarkdown, group), 220);
-    } else {
-      const q = document.createElement('div');
-      q.className = 'm-quote';
-      if (it.kind === 'del') q.textContent = 'remove “' + sideTrunc(it.text, 40) + '”';
-      else if (it.kind === 'ins') q.textContent = 'insert “' + sideTrunc(it.text, 40) + '”';
-      else q.textContent = sideTrunc(it.text, 28) + ' → ' + sideTrunc(it.text2 || '', 28);
-      card.appendChild(q);
-    }
-    card.appendChild(body);
-
-    if (isEdit) {
-      const actions = document.createElement('div');
-      actions.className = 'm-actions';
-      const accept = document.createElement('button');
-      accept.className = 'm-accept';
-      accept.textContent = '✓ Accept';
-      accept.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (state.mode === 'view') return;
-        pushUndo();
-        state.rawMarkdown = Core.acceptGroup(state.rawMarkdown, group);
-        markDirty();
-        render();
-      });
-      const reject = document.createElement('button');
-      reject.className = 'm-reject';
-      reject.textContent = '✗ Reject';
-      reject.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (state.mode === 'view') return;
-        deleteAnnotation(group);
-      });
-      actions.append(accept, reject);
-      card.appendChild(actions);
-    }
-
-    card.addEventListener('click', () => jumpToGroup(group));
-    card.addEventListener('mouseenter', () => setGroupHot(group, true));
-    card.addEventListener('mouseleave', () => setGroupHot(group, false));
-    marginRail.appendChild(card);
-  }
-  requestAnimationFrame(positionMarginCards);
-}
-
-// Align each card with its anchor; keep document order and push overlaps down.
-function positionMarginCards() {
-  const cards = [...marginRail.querySelectorAll('.mnote')];
-  if (!cards.length) { marginRail.style.height = ''; return; }
-  const railTop = marginRail.getBoundingClientRect().top;
-  const entries = cards.map(card => {
-    const anchor = contentEl.querySelector('[data-ann-group="' + card.dataset.annGroup + '"]');
-    const top = anchor ? anchor.getBoundingClientRect().top - railTop : 34;
-    return { card, top: Math.max(34, top) };  // 34px = below the "Comments" label
-  });
-  entries.sort((a, b) => a.top - b.top);
-  let cursor = 34;
-  for (const e of entries) {
-    const top = Math.max(e.top, cursor);
-    e.card.style.top = top + 'px';
-    cursor = top + e.card.offsetHeight + 12;
-  }
-  // The rail must be as tall as its lowest card so the shared scroll reaches it.
-  marginRail.style.height = cursor + 'px';
-}
-window.addEventListener('resize', () => positionMarginCards());
-
-// Hovering annotated text lights up its margin card.
-contentEl.addEventListener('mouseover', (e) => {
-  const wrap = e.target.closest('.ann-wrap');
-  if (!wrap) return;
-  const card = marginRail.querySelector('.mnote[data-ann-group="' + wrap.dataset.annGroup + '"]');
-  if (card) card.classList.add('hot');
-});
-contentEl.addEventListener('mouseout', (e) => {
-  const wrap = e.target.closest('.ann-wrap');
-  if (!wrap) return;
-  const card = marginRail.querySelector('.mnote[data-ann-group="' + wrap.dataset.annGroup + '"]');
-  if (card) card.classList.remove('hot');
-});
-
+// ── Annotation navigation ──────────────────────────────────
 function jumpToGroup(group) {
   const el = contentEl.querySelector('[data-ann-group="' + group + '"]');
   if (!el) return;
@@ -595,12 +456,7 @@ function render() {
   }
   rendered = rendered.replace(/<p>\s*<\/p>/g, '');
   contentEl.innerHTML = rendered;
-  renderMarginRail();
   renderedView.scrollTop = scrollTop;
-  // Late layout shifts (images loading) move the anchors — re-align the cards.
-  contentEl.querySelectorAll('img').forEach(img => {
-    if (!img.complete) img.addEventListener('load', () => positionMarginCards(), { once: true });
-  });
 
   contentEl.querySelectorAll('.ann-delete').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -650,7 +506,6 @@ function render() {
   initTableResize();
   initCodeCopy();
   renderMermaid();
-  requestAnimationFrame(positionMarginCards);
 }
 
 // Render every .mermaid block freshly produced by the markdown renderer.
@@ -671,7 +526,6 @@ async function renderMermaid() {
       el.textContent = 'Mermaid error: ' + (e && e.message ? e.message : e);
     }
   }
-  positionMarginCards();  // diagrams change anchor positions
 }
 window.renderMermaid = renderMermaid;
 
@@ -1117,12 +971,6 @@ function hideInsCaret() { insCaret.classList.remove('visible'); }
 
 function showCommentPopup(pending) {
   state.pending = pending;
-  pending.suggest = false;
-  // A suggestion replaces one contiguous span, so only offer the tab when the
-  // target maps to exactly one simple range insert.
-  pending.canSuggest = pending.inserts.length === 1 && pending.inserts[0].type === 'pair';
-  $('#tab-suggest').disabled = !pending.canSuggest;
-  setPopupTab(false);
   // Don't echo the selected text back as a title; only show the small generic
   // hint for point/block comments.
   selectedPreview.textContent = pending.preview || '';
@@ -1134,26 +982,6 @@ function showCommentPopup(pending) {
   annInput.focus();
 }
 
-function setPopupTab(suggest) {
-  if (!state.pending) return;
-  state.pending.suggest = suggest;
-  $('#tab-comment').classList.toggle('on', !suggest);
-  $('#tab-suggest').classList.toggle('on', suggest);
-  if (suggest) {
-    const ins = state.pending.inserts[0];
-    annInput.placeholder = 'Replacement text...';
-    annInput.value = state.rawMarkdown.slice(ins.start, ins.end);
-    $('#btn-ann-save').textContent = 'Suggest';
-  } else {
-    annInput.placeholder = 'Add your comment...';
-    annInput.value = '';
-    $('#btn-ann-save').textContent = 'Add Comment';
-  }
-  annInput.focus();
-}
-$('#tab-comment').addEventListener('click', () => setPopupTab(false));
-$('#tab-suggest').addEventListener('click', () => setPopupTab(true));
-
 function hideAnnotationPopup() {
   popup.classList.remove('visible');
   hideInsCaret();
@@ -1164,13 +992,7 @@ function commitAnnotation() {
   const text = annInput.value.trim();
   if (!text || !state.pending) return;
   pushUndo();
-  if (state.pending.suggest) {
-    const ins = state.pending.inserts[0];
-    if (text === state.rawMarkdown.slice(ins.start, ins.end).trim()) { undoStack.pop(); hideAnnotationPopup(); return; }
-    state.rawMarkdown = Core.suggestEdit(state.rawMarkdown, ins.start, ins.end, text);
-  } else {
-    state.rawMarkdown = Core.applyInserts(state.rawMarkdown, state.pending.inserts, text);
-  }
+  state.rawMarkdown = Core.applyInserts(state.rawMarkdown, state.pending.inserts, text);
   markDirty();
   render();
   hideAnnotationPopup();

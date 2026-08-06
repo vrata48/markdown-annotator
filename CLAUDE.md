@@ -12,11 +12,11 @@ Browser-only, single-page markdown annotator. No server, no build step, no packa
 ## Key concepts
 
 - **Annotations are CriticMarkup in the source**: `{==text==}{>>comment<<}` pairs, `{>>comment<<}` points, and suggested edits `{--del--}` / `{++ins++}` / `{~~old~>new~~}`. A multi-block annotation = several `{==...==}` highlights + one trailing pair, bound into one *group* — all mutations operate on group ids from `Core.scanAnnotations`.
-- **Suggested edits**: `deleteGroup` = reject (revert to original), `acceptGroup` = accept (apply the change). The annotation popup's "Suggest edit" tab only appears for single contiguous range targets.
+- **Suggested edits**: `deleteGroup` = reject (revert to original), `acceptGroup` = accept (apply the change). The UI renders and accepts/rejects edits found in the file but no longer creates them — the popup's "Suggest edit" tab was removed (2026-08) on user preference; `Core.suggestEdit` remains for external writers/tests.
 - **`Core.docZone`** detects standalone point comments at the top of the file (after optional YAML frontmatter). The dedicated "Document comments" top panel was removed (2026-08); the app no longer calls `docZone` — top-of-file comments render as ordinary inline point badges. The core API + tests remain.
 - **Placeholder trick**: annotations are swapped for `​ANN{i}​` tokens before markdown-it runs, then swapped back to HTML — keeps pipes/braces from breaking table parsing. Don't "simplify" this away.
 - **Modes**: `state.mode` `'annotate' | 'view'`; view mode short-circuits annotation handlers and hides controls via body class `view-mode`.
-- **Margin comment rail** (2026-08 "cool ink" redesign): comments/edits render as cards in a grid column beside the sheet (`renderMarginRail` in app.js), aligned to their anchors by `positionMarginCards` (anchor `getBoundingClientRect` diff + push-down on overlap; re-run after mermaid render, image loads, and window resize). Highlight groups have **no inline badge** — the highlight itself is the click-to-edit target; point comments keep a compact dot marker. Chrome state rides body classes: `file-open`, `dirty`, `has-notes`, `view-mode`.
+- **Comments render inline** as badges beside their passage (`Core.annHtml`); a margin-rail card layout was built during the 2026-08 redesign and reverted on user preference — don't reintroduce it. The whole `.ann-wrap` (not just the badge) is the click-to-edit target. Chrome state rides body classes: `file-open`, `dirty`, `view-mode`.
 
 ## File I/O rules (Chromium-only, by decision)
 

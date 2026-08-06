@@ -13,17 +13,17 @@ Reviewing LLM-generated (or human-written) markdown usually means pasting text b
 ## Features
 
 ### Commenting
-- **Inline comments** — select any text (a word, a phrase, across paragraphs) and attach a comment; the passage gets an amber highlight and the comment appears as a card in the margin beside it. Stored as `{==text==}{>>comment<<}`.
+- **Inline comments** — select any text (a word, a phrase, across paragraphs) and attach a comment; the passage gets an amber highlight with the comment as a badge right beside it. Stored as `{==text==}{>>comment<<}`.
 - **Point comments** — click anywhere in the text to drop a note at that exact spot (`{>>comment<<}`).
 - **Diagram comments** — click a rendered mermaid diagram to comment on the whole diagram.
 - **Structure protection** — spots that can't be annotated without breaking the markdown formatting are refused with a notice; messy selections degrade gracefully to annotating what they can.
 
 ### Suggested edits
-- Propose a **replacement** (`{~~old~>new~~}`), **deletion** (`{--gone--}`), or **insertion** (`{++added++}`) — via the "Suggest edit" tab in the annotation popup, or written by an LLM directly into the file.
+- A **replacement** (`{~~old~>new~~}`), **deletion** (`{--gone--}`), or **insertion** (`{++added++}`) written by an LLM (or anyone) directly into the file.
 - Rendered as red strikethrough / green underline; hover shows **✓ accept / ✗ reject**, which rewrite the source accordingly.
 
 ### Reviewing
-- **Margin comments** — every comment and suggestion sits in the margin, aligned with the text it references; hovering a card highlights its passage, clicking jumps to it. Suggested edits carry accept/reject right on the card.
+- **Everything in the document** — comments and suggestions live directly in the text; hover a badge to read a long comment in full, click any highlight to edit it. The rail's comment counter jumps to the first annotation.
 - **Annotate / View modes** (Ctrl+E) — View mode makes the document behave like a normal page: select, copy, click without popups; annotations stay visible but read-only.
 - **Undo** (Ctrl+Z) — reverts annotation operations, 50 steps deep.
 
