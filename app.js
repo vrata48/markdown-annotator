@@ -19,9 +19,8 @@ const renderedView = $('#rendered-view');
 const popup = $('#annotation-popup');
 const annInput = $('#annotation-input');
 const selectedPreview = $('#selected-preview');
-const filenameDisplay = $('#filename-display');
-const unsavedInd = $('#unsaved-indicator');
-const annCount = $('#annotation-count');
+const tabName = $('#tab-name');
+const annCountBadge = $('#ann-count-badge');
 const editPopup = $('#edit-popup');
 const editInput = $('#edit-input');
 const saveStatus = $('#save-status');
@@ -86,30 +85,21 @@ async function openHandle(handle, opts) {
   }
 }
 
-// After a page refresh, reopen the last file. Permission usually drops back
-// to 'prompt' on reload and requestPermission needs a user gesture, so:
-// still granted → reopen silently; otherwise → show the resume bar.
+// After a page refresh, reopen the last file if permission survived (it
+// usually drops back to 'prompt' on reload, and requestPermission needs a
+// user gesture). When it didn't survive, the recents list covers reopening.
 async function tryRestoreLast() {
   if (!FS_SUPPORTED || state.fileOpen) return;
-  const rec = await fetchRecent();
-  if (!rec.length) return;
-  const last = rec[0];
   let wasRefresh = false;
   try { wasRefresh = sessionStorage.getItem('had-file') === '1'; } catch (_) {}
+  if (!wasRefresh) return;
+  const rec = await fetchRecent();
+  if (!rec.length) return;
   try {
-    if (wasRefresh && await last.handle.queryPermission({ mode: 'read' }) === 'granted') {
-      await openHandle(last.handle, { silent: true });
-      if (state.fileOpen) return;
+    if (await rec[0].handle.queryPermission({ mode: 'read' }) === 'granted') {
+      await openHandle(rec[0].handle, { silent: true });
     }
-  } catch (_) { return; }  // dead handle — recents pruning will catch it
-  if (state.fileOpen) return;
-  const bar = $('#resume-bar');
-  $('#resume-name').textContent = last.name;
-  bar.style.display = 'flex';
-  $('#btn-resume').addEventListener('click', () => {
-    bar.style.display = 'none';
-    openHandle(last.handle);
-  }, { once: true });
+  } catch (_) { /* dead handle — recents pruning will catch it */ }
 }
 
 async function pickFile() {
@@ -179,7 +169,7 @@ function getAutoReload() {
 function refreshAutoReloadButton() {
   const on = getAutoReload();
   const btn = $('#btn-autoreload');
-  btn.textContent = 'Auto-reload: ' + (on ? 'on' : 'off');
+  btn.title = 'Auto-reload external changes: ' + (on ? 'on' : 'off');
   btn.classList.toggle('active', on);
 }
 $('#btn-autoreload').addEventListener('click', () => {
@@ -328,29 +318,22 @@ function recentItemButton(f) {
 
 function hideRecentMenu() { recentMenu.classList.remove('visible'); }
 
-// Dropdown under the Open file button: "Browse files…" + recent files.
+// Dropdown beside the rail's Recent button: recently opened files.
 async function showRecentMenu() {
   const files = await fetchRecent();
   recentMenu.innerHTML = '';
-  const browse = document.createElement('button');
-  browse.className = 'recent-browse';
-  browse.textContent = 'Open file…';
-  browse.addEventListener('click', () => { hideRecentMenu(); pickFile(); });
-  recentMenu.appendChild(browse);
-  const folderBtn = document.createElement('button');
-  folderBtn.className = 'recent-browse';
-  folderBtn.textContent = 'Open folder…';
-  folderBtn.addEventListener('click', () => { hideRecentMenu(); pickFolder(); });
-  recentMenu.appendChild(folderBtn);
   if (files.length > 0) {
-    const sep = document.createElement('div');
-    sep.className = 'recent-sep';
-    recentMenu.appendChild(sep);
     files.forEach(f => recentMenu.appendChild(recentItemButton(f)));
+  } else {
+    const none = document.createElement('button');
+    none.textContent = 'No recent files';
+    none.disabled = true;
+    recentMenu.appendChild(none);
   }
-  const rect = $('#btn-open').getBoundingClientRect();
-  recentMenu.style.left = rect.left + 'px';
-  recentMenu.style.top = (rect.bottom + 4) + 'px';
+  // The button lives in the left rail — the menu flies out to its right.
+  const rect = $('#btn-recent').getBoundingClientRect();
+  recentMenu.style.left = (rect.right + 8) + 'px';
+  recentMenu.style.top = Math.min(rect.top, window.innerHeight - 320) + 'px';
   recentMenu.classList.add('visible');
 }
 
@@ -398,130 +381,174 @@ function flashSaved() {
   setTimeout(() => saveStatus.classList.remove('show'), 1500);
 }
 
-// ── Document-level comments (top-of-file zone) ─────────────
-const docZone = Core.docZone;
-
-const docPanel = $('#doc-panel');
-const docList = $('#doc-list');
-const docAddForm = $('#doc-add-form');
-const docAddInput = $('#doc-add-input');
-
-function renderDocPanel(zone) {
-  docList.innerHTML = '';
-  for (const it of zone.items) {
-    const row = document.createElement('div');
-    row.className = 'doc-item';
-    const icon = document.createElement('span');
-    icon.textContent = '\u{1F4AC}';
-    const text = document.createElement('span');
-    text.className = 'doc-text';
-    text.textContent = it.comment.trim();
-    const del = document.createElement('button');
-    del.className = 'doc-del';
-    del.innerHTML = '&times;';
-    del.title = 'Delete comment';
-    del.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (state.mode === 'view') return;
-      deleteAnnotation(it.group);
-    });
-    row.append(icon, text, del);
-    row.addEventListener('click', () => {
-      if (state.mode === 'view') return;
-      openEditPopup(it.group, row);
-    });
-    docList.appendChild(row);
-  }
-  updateDocPanelVisibility(zone.items.length);
+// ── Close the current document (× on the file tab) ─────────
+function closeFile() {
+  if (!state.fileOpen) return;
+  if (state.dirty && !confirm('You have unsaved changes. Close anyway?')) return;
+  if (watchTimer) { clearInterval(watchTimer); watchTimer = null; }
+  state.rawMarkdown = '';
+  state.fileName = '';
+  state.displayPath = '';
+  state.fileHandle = null;
+  state.dirty = false;
+  state.fileOpen = false;
+  clearUndo();
+  hideAnnotationPopup();
+  hideEditPopup();
+  hideDiskBanner();
+  contentEl.innerHTML = '';
+  renderMarginRail();          // clears the cards and the has-notes class
+  annCountBadge.textContent = '';
+  setMode('annotate');
+  if (folder) { folder.currentPath = null; renderFileSidebar(); }
+  // A refresh after closing should land on the welcome screen, not reopen.
+  try { sessionStorage.removeItem('had-file'); } catch (_) {}
+  updateToolbar();
+  refreshWelcomeRecent();
 }
+$('#btn-close-file').addEventListener('click', closeFile);
 
-function updateDocPanelVisibility(count) {
-  if (count === undefined) count = docList.children.length;
-  const show = state.fileOpen && (count > 0 || state.mode === 'annotate');
-  docPanel.style.display = show ? 'block' : 'none';
-}
-
-function hideDocAddForm() {
-  docAddForm.style.display = 'none';
-  docAddInput.value = '';
-}
-
-function addDocComment() {
-  const comment = docAddInput.value.trim();
-  if (!comment) return;
-  pushUndo();
-  const src = state.rawMarkdown;
-  const { end } = docZone(src);
-  const prefix = end > 0 && src[end - 1] !== '\n' ? '\n' : '';
-  const rest = src.slice(end).replace(/^(\r?\n)+/, '');
-  state.rawMarkdown = src.slice(0, end) + prefix + '{>> ' + comment + ' <<}\n\n' + rest;
-  hideDocAddForm();
-  markDirty();
-  render();
-}
-
-// ── Annotation list sidebar ─────────────────────────────────
-const annSidebar = $('#ann-sidebar');
+// ── Margin comment rail ────────────────────────────────────
+// Cards render from scanAnnotations (one per group) into the grid column next
+// to the sheet, then a position pass aligns each card with its anchor in the
+// rendered text — overlapping cards push down.
+const marginRail = $('#margin-rail');
 
 function sideTrunc(s, n) {
   s = s.replace(/\s+/g, ' ').trim();
   return s.length > n ? s.slice(0, n) + '…' : s;
 }
 
-function renderAnnSidebar() {
-  const list = $('#ann-sidebar-list');
-  list.innerHTML = '';
-  if (!state.fileOpen) return;
-  const zone = Core.docZone(state.rawMarkdown);
-  const docGroups = new Set(zone.items.map(i => i.group));
+function setGroupHot(group, hot) {
+  contentEl.querySelectorAll('.ann-wrap[data-ann-group="' + group + '"]')
+    .forEach(el => el.classList.toggle('hot', hot));
+}
+
+function renderMarginRail() {
+  marginRail.querySelectorAll('.mnote').forEach(n => n.remove());
   const seen = new Set();
-  const items = Core.scanAnnotations(state.rawMarkdown).filter(it => {
+  const items = !state.fileOpen ? [] : Core.scanAnnotations(state.rawMarkdown).filter(it => {
     if (seen.has(it.group)) return false;
     seen.add(it.group);
     return true;
   });
-  if (!items.length) {
-    list.innerHTML = '<div class="ann-side-empty">No comments yet.<br>Select text to add one.</div>';
-    return;
-  }
+  document.body.classList.toggle('has-notes', items.length > 0);
+  if (!items.length) { marginRail.style.height = ''; return; }
+
   for (const it of items) {
-    const row = document.createElement('div');
-    row.className = 'ann-side-item';
-    const kind = document.createElement('span');
-    kind.className = 'kind';
-    const body = document.createElement('span');
-    let quote = '';
-    if (docGroups.has(it.group)) {
-      kind.classList.add('k-doc'); kind.textContent = 'doc';
-      body.textContent = sideTrunc(it.comment, 140);
-    } else if (it.kind === 'point') {
-      kind.classList.add('k-comment'); kind.textContent = 'note';
-      body.textContent = sideTrunc(it.comment, 140);
+    const group = it.group;
+    const isEdit = it.kind === 'del' || it.kind === 'ins' || it.kind === 'sub';
+    const card = document.createElement('div');
+    card.className = 'mnote' + (isEdit ? ' m-edit' : it.kind === 'point' ? ' m-point' : '');
+    card.dataset.annGroup = group;
+
+    const head = document.createElement('div');
+    head.className = 'm-head';
+    const label = document.createElement('b');
+    label.textContent = isEdit ? 'Suggested edit' : it.kind === 'point' ? 'Note' : 'Comment';
+    const x = document.createElement('button');
+    x.className = 'm-x';
+    x.innerHTML = '&times;';
+    x.title = isEdit ? 'Reject suggestion' : 'Delete comment';
+    x.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (state.mode === 'view') return;
+      deleteAnnotation(group);
+    });
+    head.append(label, x);
+    card.appendChild(head);
+
+    const body = document.createElement('div');
+    if (it.kind === 'point') {
+      body.textContent = sideTrunc(it.comment, 220);
     } else if (it.kind === 'pair' || it.kind === 'highlight') {
-      kind.classList.add('k-comment'); kind.textContent = 'comment';
-      body.textContent = sideTrunc(Core.getGroupComment(state.rawMarkdown, it.group), 140);
-      quote = sideTrunc(it.text, 60);
+      const q = document.createElement('div');
+      q.className = 'm-quote';
+      q.textContent = sideTrunc(it.text, 60);
+      card.appendChild(q);
+      body.textContent = sideTrunc(Core.getGroupComment(state.rawMarkdown, group), 220);
     } else {
-      kind.classList.add('k-edit'); kind.textContent = 'edit';
-      if (it.kind === 'del') body.textContent = 'remove “' + sideTrunc(it.text, 50) + '”';
-      else if (it.kind === 'ins') body.textContent = 'insert “' + sideTrunc(it.text, 50) + '”';
-      else body.textContent = '“' + sideTrunc(it.text, 35) + '” → “' + sideTrunc(it.text2 || '', 35) + '”';
+      const q = document.createElement('div');
+      q.className = 'm-quote';
+      if (it.kind === 'del') q.textContent = 'remove “' + sideTrunc(it.text, 40) + '”';
+      else if (it.kind === 'ins') q.textContent = 'insert “' + sideTrunc(it.text, 40) + '”';
+      else q.textContent = sideTrunc(it.text, 28) + ' → ' + sideTrunc(it.text2 || '', 28);
+      card.appendChild(q);
     }
-    row.append(kind, body);
-    if (quote) {
-      const q = document.createElement('span');
-      q.className = 'quote';
-      q.textContent = quote;
-      row.appendChild(q);
+    card.appendChild(body);
+
+    if (isEdit) {
+      const actions = document.createElement('div');
+      actions.className = 'm-actions';
+      const accept = document.createElement('button');
+      accept.className = 'm-accept';
+      accept.textContent = '✓ Accept';
+      accept.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (state.mode === 'view') return;
+        pushUndo();
+        state.rawMarkdown = Core.acceptGroup(state.rawMarkdown, group);
+        markDirty();
+        render();
+      });
+      const reject = document.createElement('button');
+      reject.className = 'm-reject';
+      reject.textContent = '✗ Reject';
+      reject.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (state.mode === 'view') return;
+        deleteAnnotation(group);
+      });
+      actions.append(accept, reject);
+      card.appendChild(actions);
     }
-    const group = it.group, isDoc = docGroups.has(it.group);
-    row.addEventListener('click', () => jumpToGroup(group, isDoc));
-    list.appendChild(row);
+
+    card.addEventListener('click', () => jumpToGroup(group));
+    card.addEventListener('mouseenter', () => setGroupHot(group, true));
+    card.addEventListener('mouseleave', () => setGroupHot(group, false));
+    marginRail.appendChild(card);
   }
+  requestAnimationFrame(positionMarginCards);
 }
 
-function jumpToGroup(group, isDoc) {
-  const el = isDoc ? docPanel : contentEl.querySelector('[data-ann-group="' + group + '"]');
+// Align each card with its anchor; keep document order and push overlaps down.
+function positionMarginCards() {
+  const cards = [...marginRail.querySelectorAll('.mnote')];
+  if (!cards.length) { marginRail.style.height = ''; return; }
+  const railTop = marginRail.getBoundingClientRect().top;
+  const entries = cards.map(card => {
+    const anchor = contentEl.querySelector('[data-ann-group="' + card.dataset.annGroup + '"]');
+    const top = anchor ? anchor.getBoundingClientRect().top - railTop : 34;
+    return { card, top: Math.max(34, top) };  // 34px = below the "Comments" label
+  });
+  entries.sort((a, b) => a.top - b.top);
+  let cursor = 34;
+  for (const e of entries) {
+    const top = Math.max(e.top, cursor);
+    e.card.style.top = top + 'px';
+    cursor = top + e.card.offsetHeight + 12;
+  }
+  // The rail must be as tall as its lowest card so the shared scroll reaches it.
+  marginRail.style.height = cursor + 'px';
+}
+window.addEventListener('resize', () => positionMarginCards());
+
+// Hovering annotated text lights up its margin card.
+contentEl.addEventListener('mouseover', (e) => {
+  const wrap = e.target.closest('.ann-wrap');
+  if (!wrap) return;
+  const card = marginRail.querySelector('.mnote[data-ann-group="' + wrap.dataset.annGroup + '"]');
+  if (card) card.classList.add('hot');
+});
+contentEl.addEventListener('mouseout', (e) => {
+  const wrap = e.target.closest('.ann-wrap');
+  if (!wrap) return;
+  const card = marginRail.querySelector('.mnote[data-ann-group="' + wrap.dataset.annGroup + '"]');
+  if (card) card.classList.remove('hot');
+});
+
+function jumpToGroup(group) {
+  const el = contentEl.querySelector('[data-ann-group="' + group + '"]');
   if (!el) return;
   el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   el.classList.remove('ann-flash');
@@ -529,8 +556,11 @@ function jumpToGroup(group, isDoc) {
   el.classList.add('ann-flash');
 }
 
-$('#annotation-count').addEventListener('click', () => annSidebar.classList.toggle('visible'));
-$('#btn-sidebar-close').addEventListener('click', () => annSidebar.classList.remove('visible'));
+// Rail comments button: scroll to the first annotation in the document.
+$('#annotation-count').addEventListener('click', () => {
+  const first = contentEl.querySelector('.ann-wrap');
+  if (first) jumpToGroup(parseInt(first.dataset.annGroup, 10));
+});
 
 // ── Render ─────────────────────────────────────────────────
 function render() {
@@ -538,21 +568,20 @@ function render() {
   // Use the shared core: highlighted text is rendered as inline markdown, so a
   // highlight covering **bold**/links/`code` stays one annotation.
   const { preprocessed, count, placeholders } = Core.preprocessCriticMarkup(state.rawMarkdown);
-  // Doc-zone comments render in the top panel, not as inline badges.
-  const zone = docZone(state.rawMarkdown);
-  const docGroups = new Set(zone.items.map(it => it.group));
   let rendered = md.render(preprocessed);
   // Swap placeholders back to annotation HTML after markdown-it is done,
   // so table/block parsing isn't broken by inline annotation spans.
   for (const e of placeholders) {
-    const html = (e.kind === 'point' && docGroups.has(e.group)) ? '' : Core.annHtml(md, e);
-    rendered = rendered.split(e.placeholder).join(html);
+    rendered = rendered.split(e.placeholder).join(Core.annHtml(md, e));
   }
   rendered = rendered.replace(/<p>\s*<\/p>/g, '');
   contentEl.innerHTML = rendered;
-  renderDocPanel(zone);
-  renderAnnSidebar();
+  renderMarginRail();
   renderedView.scrollTop = scrollTop;
+  // Late layout shifts (images loading) move the anchors — re-align the cards.
+  contentEl.querySelectorAll('img').forEach(img => {
+    if (!img.complete) img.addEventListener('load', () => positionMarginCards(), { once: true });
+  });
 
   contentEl.querySelectorAll('.ann-delete').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -562,8 +591,9 @@ function render() {
     });
   });
 
-  // Click a badge or any highlighted block of a group → edit the group's comment.
-  contentEl.querySelectorAll('.ann-comment-badge, .ann-hl').forEach(el => {
+  // Click anywhere on a comment annotation (highlight, point marker) → edit
+  // the group's comment. Suggested edits keep their own accept/reject controls.
+  contentEl.querySelectorAll('.ann-wrap:not(.ann-edit)').forEach(el => {
     el.addEventListener('click', (e) => {
       if (e.target.classList.contains('ann-delete')) return;
       e.stopPropagation();
@@ -593,12 +623,15 @@ function render() {
 
   updateToolbar();
   const groups = new Set(placeholders.map(p => p.group)).size;
-  annCount.textContent = groups > 0 ? `${groups} annotation${groups > 1 ? 's' : ''}` : '';
+  annCountBadge.textContent = groups > 0 ? String(groups) : '';
+  $('#annotation-count').title = groups > 0
+    ? `${groups} annotation${groups > 1 ? 's' : ''} — jump to first` : 'No annotations yet';
 
   initTableWrap();
   initTableResize();
   initCodeCopy();
   renderMermaid();
+  requestAnimationFrame(positionMarginCards);
 }
 
 // Render every .mermaid block freshly produced by the markdown renderer.
@@ -619,6 +652,7 @@ async function renderMermaid() {
       el.textContent = 'Mermaid error: ' + (e && e.message ? e.message : e);
     }
   }
+  positionMarginCards();  // diagrams change anchor positions
 }
 window.renderMermaid = renderMermaid;
 
@@ -757,9 +791,11 @@ function initCodeCopy() {
 }
 
 function updateToolbar() {
-  filenameDisplay.textContent = state.displayPath || state.fileName || 'No file open';
-  filenameDisplay.title = state.displayPath || state.fileName || '';
-  unsavedInd.style.display = state.dirty ? 'inline' : 'none';
+  tabName.textContent = state.displayPath || state.fileName || 'No file open';
+  tabName.title = state.displayPath || state.fileName || '';
+  // body classes drive the chrome: file tab visibility, sheet frame, dirty dots.
+  document.body.classList.toggle('file-open', state.fileOpen);
+  document.body.classList.toggle('dirty', state.dirty);
   const noFile = !state.fileOpen;
   $('#btn-save').disabled = noFile;
   // With auto-reload on and nothing unsaved, the watcher already covers manual
@@ -767,8 +803,8 @@ function updateToolbar() {
   $('#btn-refresh').disabled = noFile || (getAutoReload() && !state.dirty);
   $('#btn-autoreload').disabled = noFile;
   $('#btn-export').disabled = noFile;
-  $('#btn-mode-annotate').disabled = noFile;
-  $('#btn-mode-view').disabled = noFile;
+  $('#btn-mode-toggle').disabled = noFile;
+  $('#annotation-count').disabled = noFile;
 }
 
 function markDirty() {
@@ -1163,13 +1199,15 @@ function commitEdit() {
 }
 
 // ── Event listeners ────────────────────────────────────────
-$('#btn-open').addEventListener('click', (e) => {
+$('#btn-open').addEventListener('click', pickFile);
+$('#btn-open-folder').addEventListener('click', pickFolder);
+$('#btn-recent').addEventListener('click', (e) => {
   e.stopPropagation();
   if (recentMenu.classList.contains('visible')) hideRecentMenu();
   else showRecentMenu();
 });
 document.addEventListener('mousedown', (e) => {
-  if (!recentMenu.contains(e.target) && !e.target.closest('#btn-open')) hideRecentMenu();
+  if (!recentMenu.contains(e.target) && !e.target.closest('#btn-recent')) hideRecentMenu();
 });
 window.addEventListener('scroll', hideRecentMenu, true);
 $('#btn-save').addEventListener('click', saveFile);
@@ -1316,9 +1354,10 @@ const exportMenu = $('#export-menu');
 $('#btn-export').addEventListener('click', (e) => {
   e.stopPropagation();
   if (exportMenu.classList.contains('visible')) { exportMenu.classList.remove('visible'); return; }
+  // Export button lives in the left rail — the menu flies out to its right.
   const rect = $('#btn-export').getBoundingClientRect();
-  exportMenu.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
-  exportMenu.style.top = (rect.bottom + 4) + 'px';
+  exportMenu.style.left = (rect.right + 8) + 'px';
+  exportMenu.style.top = Math.min(rect.top, window.innerHeight - 110) + 'px';
   exportMenu.classList.add('visible');
 });
 exportMenu.addEventListener('click', (e) => {
@@ -1338,7 +1377,9 @@ function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   $('#hljs-light').disabled = theme === 'dark';
   $('#hljs-dark').disabled = theme !== 'dark';
-  $('#btn-theme').innerHTML = theme === 'dark' ? '&#9728;&#65039;' : '&#127769;';
+  $('#theme-icon').setAttribute('href', theme === 'dark' ? '#i-sun' : '#i-moon');
+  $('#theme-label').textContent = theme === 'dark' ? 'Light mode' : 'Dark mode';
+  $('#btn-theme').title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
   try { localStorage.setItem('theme', theme); } catch (_) {}
   if (window.mermaid) {
     window.mermaid.initialize({ startOnLoad: false, theme: theme === 'dark' ? 'dark' : 'default' });
@@ -1361,31 +1402,14 @@ $('#btn-theme').addEventListener('click', () => {
 function setMode(mode) {
   state.mode = mode;
   document.body.classList.toggle('view-mode', mode === 'view');
-  $('#btn-mode-annotate').classList.toggle('on', mode === 'annotate');
-  $('#btn-mode-view').classList.toggle('on', mode === 'view');
+  $('#btn-mode-toggle').classList.toggle('on', mode === 'view');
   if (mode === 'view') {
     hideAnnotationPopup();
     hideEditPopup();
-    hideDocAddForm();
   }
-  updateDocPanelVisibility();
 }
 function toggleMode() { setMode(state.mode === 'annotate' ? 'view' : 'annotate'); }
-$('#btn-mode-annotate').addEventListener('click', () => setMode('annotate'));
-$('#btn-mode-view').addEventListener('click', () => setMode('view'));
-
-// ── Document comments panel events ─────────────────────────
-$('#btn-doc-add').addEventListener('click', () => {
-  if (state.mode === 'view') return;
-  docAddForm.style.display = 'block';
-  docAddInput.focus();
-});
-$('#btn-doc-save').addEventListener('click', addDocComment);
-$('#btn-doc-cancel').addEventListener('click', hideDocAddForm);
-docAddInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addDocComment(); }
-  if (e.key === 'Escape') { e.stopPropagation(); hideDocAddForm(); }
-});
+$('#btn-mode-toggle').addEventListener('click', toggleMode);
 
 // Selection → validate → annotation popup (or "unsupported" notice).
 renderedView.addEventListener('mouseup', (e) => {
@@ -1625,7 +1649,6 @@ window.addEventListener('drop', (e) => {
 });
 
 // ── Init ───────────────────────────────────────────────────
-$('#btn-welcome-open').addEventListener('click', pickFile);
 $('#btn-disk-reload').addEventListener('click', () => { state.dirty = false; reloadFromDisk(); });
 $('#btn-disk-dismiss').addEventListener('click', hideDiskBanner);
 $('#btn-folder-close').addEventListener('click', () => {
@@ -1634,8 +1657,9 @@ $('#btn-folder-close').addEventListener('click', () => {
 });
 if (!FS_SUPPORTED) {
   $('#browser-warning').style.display = 'block';
-  $('#btn-welcome-open').disabled = true;
   $('#btn-open').disabled = true;
+  $('#btn-open-folder').disabled = true;
+  $('#btn-recent').disabled = true;
 }
 // Installed-PWA file handling: opening a .md "with" the app lands here.
 if ('launchQueue' in window) {

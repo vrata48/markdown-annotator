@@ -13,10 +13,9 @@ Reviewing LLM-generated (or human-written) markdown usually means pasting text b
 ## Features
 
 ### Commenting
-- **Inline comments** — select any text (a word, a phrase, across paragraphs) and attach a comment; the passage gets an amber highlight with a comment badge. Stored as `{==text==}{>>comment<<}`.
+- **Inline comments** — select any text (a word, a phrase, across paragraphs) and attach a comment; the passage gets an amber highlight and the comment appears as a card in the margin beside it. Stored as `{==text==}{>>comment<<}`.
 - **Point comments** — click anywhere in the text to drop a note at that exact spot (`{>>comment<<}`).
 - **Diagram comments** — click a rendered mermaid diagram to comment on the whole diagram.
-- **Document comments** — a panel at the top of the page holds comments about the document as a whole (stored at the top of the file, after YAML frontmatter if present).
 - **Structure protection** — spots that can't be annotated without breaking the markdown formatting are refused with a notice; messy selections degrade gracefully to annotating what they can.
 
 ### Suggested edits
@@ -24,7 +23,7 @@ Reviewing LLM-generated (or human-written) markdown usually means pasting text b
 - Rendered as red strikethrough / green underline; hover shows **✓ accept / ✗ reject**, which rewrite the source accordingly.
 
 ### Reviewing
-- **Comments sidebar** — every comment and suggestion in one list; click an entry to jump to it in the document.
+- **Margin comments** — every comment and suggestion sits in the margin, aligned with the text it references; hovering a card highlights its passage, clicking jumps to it. Suggested edits carry accept/reject right on the card.
 - **Annotate / View modes** (Ctrl+E) — View mode makes the document behave like a normal page: select, copy, click without popups; annotations stay visible but read-only.
 - **Undo** (Ctrl+Z) — reverts annotation operations, 50 steps deep.
 
@@ -33,7 +32,7 @@ Reviewing LLM-generated (or human-written) markdown usually means pasting text b
 - **Drag & drop** a `.md` anywhere on the page to open it.
 - **Folder mode** — open a directory; a sidebar lists every markdown file in the tree.
 - **Recent files** — one click away in the Open file dropdown; the last file reopens automatically after a page refresh (new tabs start clean).
-- **Disk watching** — the app notices when the open file changes on disk (an LLM rewriting it, another editor saving). Default: a banner offers to reload. Flip the toolbar **Auto-reload** toggle to have clean files reload silently; conflicting unsaved changes always warn first.
+- **Disk watching** — the app notices when the open file changes on disk (an LLM rewriting it, another editor saving). Default: a banner offers to reload. Flip the **Auto-reload** toggle in the left rail to have clean files reload silently; conflicting unsaved changes always warn first.
 
 ### Comfort
 - **Dark mode** (🌙, follows system preference), **installable as a PWA** (registers as a `.md` handler; installed apps also get persistent file permissions, so restores are silent), **mermaid diagrams** rendered inline with right-click copy/download as image, **code highlighting** via highlight.js.

@@ -33,23 +33,24 @@
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* ── Design tokens: the proofreader's desk ─────────────────
-   Paper document on a muted desk; annotations are amber
-   highlighter + an editor's blue pencil. */
+/* ── Design tokens: cool ink ───────────────────────────────
+   White sheet on a cool slate desk; one ultramarine accent.
+   Semantic colors (mark / red-pen / ok) are reserved for
+   annotations — the chrome speaks only in accent + neutrals. */
 :root {
-  --paper: #FCFBF8;        /* the page */
-  --desk: #F1EFE9;         /* chrome around the page */
-  --desk-deep: #E7E4DB;
-  --ink: #26251F;          /* warm near-black text */
-  --ink-soft: #75705F;
-  --line: #DFDBCF;
-  --pen: #35507B;          /* editor's blue pencil */
-  --pen-deep: #274063;
-  --pen-wash: #EBF0F7;
-  --mark: #FFE9A8;         /* highlighter amber */
-  --mark-edge: #E4BE55;
-  --red-pen: #B3372B;
-  --ok: #3E7A4E;
+  --paper: #FFFFFF;        /* the sheet */
+  --desk: #E8ECF1;         /* chrome around the sheet */
+  --desk-deep: #DCE2E9;
+  --ink: #1B2129;
+  --ink-soft: #5D6874;
+  --line: #D3DAE2;
+  --pen: #3450B4;          /* ultramarine */
+  --pen-deep: #293F91;
+  --pen-wash: #E7EBF9;
+  --mark: #FBF0B4;         /* highlighter — cooler cast, same job */
+  --mark-edge: #D8BC4F;
+  --red-pen: #BC4136;
+  --ok: #2E7D51;
 
   /* legacy aliases used throughout component styles */
   --bg: var(--paper);
@@ -61,45 +62,49 @@
   --highlight-bg: var(--mark);
   --highlight-border: var(--mark-edge);
   --danger: var(--red-pen);
-  --shadow: 0 8px 28px rgba(38,37,31,0.16);
+  --shadow: 0 8px 28px rgba(27,33,41,0.16);
+  --card-shadow: 0 1px 2px rgba(27,33,41,0.06), 0 8px 24px rgba(27,33,41,0.08);
 
   --font-ui: "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-doc: "Charter", "Sitka Text", "Cambria", Georgia, serif;
+  --font-doc: "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-mono: "Cascadia Code", "SF Mono", "Consolas", monospace;
 
-  --code-bg: #F4F2EC;
-  --code-inline-bg: #F1EEE6;
-  --warn-bg: #FBEFEA;
-  --warn-border: #E4B8AE;
-  --wash-border: #C9D4E4;
-  --wash-hover: #DDE6F2;
+  --code-bg: #F1F4F8;
+  --code-inline-bg: #EDF0F5;
+  --warn-bg: #FBEDEB;
+  --warn-border: #E5B5AE;
+  --wash-border: #C4CFEA;
+  --wash-hover: #D9E0F5;
 }
 
 /* The desk after dark */
 :root[data-theme="dark"] {
-  --paper: #262723;
-  --desk: #1B1C19;
-  --desk-deep: #32332D;
-  --ink: #E7E4D8;
-  --ink-soft: #A29D8C;
-  --line: #3C3D35;
-  --pen: #8CA5D6;
-  --pen-deep: #AFC3E8;
-  --pen-wash: #2A3547;
-  --mark: #5C4E1E;
-  --mark-edge: #B99B45;
-  --red-pen: #E07862;
-  --ok: #82BE92;
+  --paper: #21272E;
+  --desk: #14181D;
+  --desk-deep: #1E242B;
+  --ink: #E3E8EE;
+  --ink-soft: #93A0AD;
+  --line: #38414B;
+  --pen: #93A8F0;
+  --pen-deep: #AFC0F5;
+  --pen-wash: #2A3350;
+  --mark: #4E441E;
+  --mark-edge: #A98F3E;
+  --red-pen: #E4796C;
+  --ok: #7FC79C;
   --shadow: 0 8px 28px rgba(0,0,0,0.5);
+  --card-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
 
-  --code-bg: #1F201C;
-  --code-inline-bg: #32332D;
-  --warn-bg: #3A2620;
+  --code-bg: #1A1F25;
+  --code-inline-bg: #2A313A;
+  --warn-bg: #3D2724;
   --warn-border: #6E4038;
   --wash-border: #3D4C63;
   --wash-hover: #33405A;
 }
-:root[data-theme="dark"] #mode-switch button.on { box-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+/* Ultramarine reads dark on light but light on dark — button text flips with it. */
+:root { --on-pen: #FFFFFF; }
+:root[data-theme="dark"] { --on-pen: #14181D; }
 :root[data-theme="dark"] #rendered-view .content { box-shadow: 0 2px 12px rgba(0,0,0,0.35); }
 
 body {
@@ -108,131 +113,135 @@ body {
   background: var(--desk);
   height: 100vh;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   overflow: hidden;
 }
 
-/* Toolbar — the desk rail */
-#toolbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  background: var(--desk);
-  border-bottom: 1px solid var(--desk-deep);
+/* Pen-tray rail — labeled icon rows in a tray on the left */
+#rail {
+  width: 184px;
   flex-shrink: 0;
+  background: var(--desk-deep);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  padding: 10px 8px 12px;
+  gap: 2px;
   z-index: 10;
 }
-
-#toolbar button {
-  padding: 6px 13px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  font-family: var(--font-ui);
+#rail .rail-gap { flex: 1; }
+#rail .rail-divider { height: 1px; background: var(--line); margin: 6px 4px; flex-shrink: 0; }
+#rail-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 2px 6px 12px;
+  font-size: 12.5px;
+  font-weight: 700;
   color: var(--ink);
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  user-select: none;
 }
-
-#toolbar button:hover { background: var(--desk-deep); }
-#toolbar button.active { background: var(--pen); color: white; }
-#toolbar button:disabled { opacity: 0.4; cursor: default; }
-#toolbar button:disabled:hover { background: transparent; }
-#toolbar #btn-open {
+#app-mark {
+  width: 24px; height: 24px; border-radius: 7px; flex-shrink: 0;
   background: var(--pen);
-  color: white;
+  display: grid; place-items: center;
+  color: var(--on-pen); font-size: 12px; font-weight: 700; font-family: var(--font-mono);
 }
-#toolbar #btn-open:hover { background: var(--pen-deep); }
-
-/* Segmented Annotate / View switch */
-#mode-switch {
-  display: inline-flex;
-  background: var(--desk-deep);
+#rail button, #rail a.icon-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
   border-radius: 8px;
-  padding: 2px;
-  margin-left: 4px;
-}
-#mode-switch button {
   border: none;
-  border-radius: 6px;
-  padding: 4px 12px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-family: var(--font-ui);
   font-size: 12.5px;
   font-weight: 600;
-  color: var(--ink-soft);
-  background: transparent;
+  text-align: left;
+  text-decoration: none;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
 }
-#mode-switch button:hover { background: transparent; color: var(--ink); }
-#mode-switch button.on {
-  background: var(--paper);
-  color: var(--ink);
-  box-shadow: 0 1px 3px rgba(38,37,31,0.18);
+#rail button:hover, #rail a.icon-btn:hover { background: var(--desk); color: var(--ink); }
+#rail button.on, #rail button.active { background: var(--pen-wash); color: var(--pen); }
+#rail button:disabled { opacity: 0.35; cursor: default; }
+#rail button:disabled:hover { background: transparent; color: var(--ink-soft); }
+#rail button svg, #rail a.icon-btn svg {
+  width: 18px; height: 18px;
+  flex-shrink: 0;
+  stroke: currentColor; fill: none;
+  stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
 }
-
-#filename-display {
-  margin-left: 10px;
-  font-size: 13px;
-  color: var(--ink-soft);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 400px;
+#rail .rail-badge {
+  margin-left: auto;
+  font-size: 10px; font-weight: 700; line-height: 15px;
+  color: var(--on-pen); background: var(--pen);
+  border-radius: 9px; padding: 0 5.5px;
+  pointer-events: none;
 }
-
-#unsaved-indicator {
-  color: var(--red-pen);
-  font-weight: 600;
-  font-size: 13px;
+#rail .rail-badge:empty { display: none; }
+#rail .rail-dot {
+  margin-left: auto;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--red-pen);
   display: none;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+body.dirty #rail .rail-dot { display: block; }
+
+/* View-mode toggle — a settings-style row with an on/off switch */
+#rail #btn-mode-toggle .mode-knob {
+  margin-left: auto;
+  width: 28px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--line);
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+#rail #btn-mode-toggle .mode-knob span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: 0 1px 2px rgba(27,33,41,0.25);
+  transition: left 0.15s;
+}
+#rail #btn-mode-toggle.on .mode-knob { background: var(--pen); }
+#rail #btn-mode-toggle.on .mode-knob span { left: 14px; }
+@media (prefers-reduced-motion: reduce) {
+  #rail #btn-mode-toggle .mode-knob, #rail #btn-mode-toggle .mode-knob span { transition: none; }
 }
 
-.toolbar-spacer { flex: 1; }
-
-#github-link {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 8px;
-  border-radius: 7px;
-  color: var(--ink-soft);
-}
-#github-link:hover { background: var(--desk-deep); color: var(--ink); }
-
-#toolbar #annotation-count {
-  font-size: 12px;
-  color: var(--pen);
-  font-weight: 600;
-  background: var(--pen-wash);
-  padding: 3px 10px;
-  border-radius: 20px;
-  border: none;
-  cursor: pointer;
-}
-#toolbar #annotation-count:hover { background: var(--wash-hover); }
-#toolbar #annotation-count:empty { display: none; }
-
-/* Folder file list (left) */
+/* Folder file list — docks between the rail and the document */
 #file-sidebar {
-  width: 260px;
+  width: 240px;
   flex-shrink: 0;
   display: none;
   flex-direction: column;
-  border-right: 1px solid var(--desk-deep);
-  background: var(--desk);
+  border-right: 1px solid var(--line);
+  background: var(--desk-deep);
 }
 #file-sidebar.visible { display: flex; }
 #file-sidebar header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  font-size: 12px;
+  padding: 12px 14px 8px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.1em;
   color: var(--ink-soft);
-  border-bottom: 1px solid var(--desk-deep);
   overflow: hidden;
 }
 #folder-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -240,16 +249,15 @@ body {
   border: none; background: none; cursor: pointer;
   font-size: 15px; color: var(--ink-soft); padding: 0 4px;
 }
-#file-list { flex: 1; overflow-y: auto; padding: 6px; }
+#file-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
 .file-item {
   display: block;
   width: 100%;
-  text-align: left;
   border: none;
   background: none;
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 12.5px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-size: 13px;
   font-family: var(--font-ui);
   color: var(--ink);
   cursor: pointer;
@@ -259,75 +267,96 @@ body {
   direction: rtl;   /* ellipsis on the left, filename end visible */
   text-align: left;
 }
-.file-item:hover { background: var(--desk-deep); }
-.file-item.current { background: var(--pen-wash); color: var(--pen-deep); font-weight: 600; }
+.file-item:hover { background: var(--desk); }
+.file-item.current { background: var(--pen-wash); color: var(--pen); font-weight: 600; }
 .file-empty { padding: 14px; font-size: 12.5px; color: var(--ink-soft); text-align: center; }
 
-/* Annotation list sidebar */
-#ann-sidebar {
-  width: 320px;
-  flex-shrink: 0;
-  display: none;
-  flex-direction: column;
-  border-left: 1px solid var(--desk-deep);
-  background: var(--desk);
+/* Margin comment rail — cards anchored beside the text they reference */
+#margin-rail {
+  position: relative;
+  min-width: 0;
 }
-#ann-sidebar.visible { display: flex; }
-#ann-sidebar header {
+#margin-rail .rail-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding: 8px 2px;
+}
+.mnote {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--mark-edge);
+  border-radius: 8px;
+  padding: 9px 11px;
+  box-shadow: var(--card-shadow);
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.mnote:hover, .mnote.hot { border-color: var(--pen); border-left-color: var(--pen); }
+.mnote.m-edit { border-left-color: var(--ok); }
+.mnote.m-point { border-left-color: var(--pen); }
+.mnote .m-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: 11px;
   color: var(--ink-soft);
-  border-bottom: 1px solid var(--desk-deep);
+  margin-bottom: 4px;
 }
-#ann-sidebar header button {
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 15px;
-  color: var(--ink-soft);
-  padding: 0 4px;
-}
-#ann-sidebar-list { flex: 1; overflow-y: auto; padding: 8px; }
-.ann-side-item {
-  padding: 8px 10px;
-  border-radius: 7px;
-  cursor: pointer;
-  font-size: 12.5px;
-  line-height: 1.45;
-  margin-bottom: 2px;
-}
-.ann-side-item:hover { background: var(--desk-deep); }
-.ann-side-item .kind {
-  font-size: 10.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-right: 6px;
-}
-.ann-side-item .kind.k-doc { color: var(--pen); }
-.ann-side-item .kind.k-comment { color: var(--pen-deep); }
-.ann-side-item .kind.k-edit { color: var(--ok); }
-.ann-side-item .quote {
-  display: block;
+.mnote .m-head b { color: var(--ink); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; font-size: 10.5px; }
+.mnote .m-quote {
+  font-size: 11.5px;
   color: var(--ink-soft);
   font-style: italic;
-  white-space: nowrap;
+  border-left: 2px solid var(--line);
+  padding-left: 7px;
+  margin-bottom: 5px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.ann-side-empty { padding: 16px; color: var(--ink-soft); font-size: 13px; text-align: center; }
+.mnote .m-x {
+  border: none; background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  visibility: hidden;
+}
+.mnote:hover .m-x { visibility: visible; }
+.mnote .m-x:hover { color: var(--danger); }
+.mnote .m-actions { display: flex; gap: 6px; margin-top: 7px; }
+.mnote .m-actions button {
+  font-size: 11px; font-weight: 600;
+  border-radius: 5px;
+  padding: 3px 10px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-soft);
+}
+.mnote .m-accept { color: var(--ok); border-color: var(--ok); }
+.mnote .m-reject { color: var(--red-pen); }
+.mnote .m-actions button:hover { background: var(--desk); }
+body.view-mode .mnote .m-x,
+body.view-mode .mnote .m-actions { display: none; }
+body.view-mode .mnote { cursor: default; }
 
-/* Flash target annotation after sidebar jump */
+/* Flash target annotation after a margin-card jump */
 @keyframes ann-flash-kf { 0%, 60% { outline-color: var(--mark-edge); } 100% { outline-color: transparent; } }
 .ann-flash { outline: 3px solid transparent; outline-offset: 2px; border-radius: 3px; animation: ann-flash-kf 1.6s ease-out; }
+/* Hovering a margin card marks its anchor in the text (and vice versa) */
+.ann-wrap.hot { outline: 2px solid var(--pen); outline-offset: 1px; border-radius: 3px; }
 
-/* Main layout — a sheet of paper on the desk */
+/* Main layout — the sheet plus a margin for comments */
 #main-container {
   flex: 1;
   display: flex;
@@ -337,23 +366,70 @@ body {
 #rendered-view {
   flex: 1;
   overflow-y: auto;
-  padding: 36px 24px 80px;
+  padding: 24px 28px 80px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 0 24px;
+  align-content: start;
+  align-items: start;
 }
+/* No annotations (or no file): the margin collapses, the sheet takes the row */
+body:not(.has-notes) #rendered-view { grid-template-columns: minmax(0, 1fr); }
+body:not(.has-notes) #margin-rail { display: none; }
+
+/* File tab — identity rides the sheet, not the chrome */
+#doc-col { min-width: 0; }
+#file-tab {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  background: var(--desk-deep);
+  border: 1px solid var(--line);
+  border-bottom: none;
+  border-radius: 9px 9px 0 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 14px;
+  margin-left: 10px;
+  max-width: 90%;
+  width: fit-content;
+}
+body.file-open #file-tab { display: inline-flex; }
+#file-tab #tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#file-tab .tab-dirty { color: var(--red-pen); font-size: 16px; line-height: 0; display: none; flex-shrink: 0; }
+body.dirty #file-tab .tab-dirty { display: inline; }
+#btn-close-file {
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+  margin: 0 -4px 0 2px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+#btn-close-file:hover { color: var(--danger); }
 
 #rendered-view .content {
   max-width: none;
   margin: 0;
-  line-height: 1.75;
-  font-size: 17px;
+  line-height: 1.7;
+  font-size: 16px;
   font-family: var(--font-doc);
   cursor: text;
   background: var(--paper);
-  border: 1px solid var(--desk-deep);
-  border-radius: 3px;
-  box-shadow: 0 2px 12px rgba(38,37,31,0.07);
-  padding: 56px 64px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--card-shadow);
+  padding: 48px 56px;
   min-height: 400px;
 }
+body.file-open #rendered-view .content { border-top-left-radius: 0; }
+/* Welcome state: the sheet is hidden, the welcome surface shows instead */
+body:not(.file-open) #rendered-view .content { display: none; }
+body.file-open #welcome { display: none; }
 @media (max-width: 900px) {
   #rendered-view { padding: 16px 8px 60px; }
   #rendered-view .content { padding: 28px 24px; }
@@ -448,43 +524,29 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
   cursor: default;
 }
 
-.ann-comment-badge {
+/* Comments live in the margin rail now: highlight groups get no inline badge
+   (the highlight itself is the anchor and click target); point comments keep
+   a compact dot marker, since they have no highlighted text to stand on. */
+.ann-comment-badge { display: none; }
+.ann-point .ann-comment-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   background: var(--pen);
-  color: white;
+  color: var(--on-pen);
   font-size: 11px;
-  font-weight: 500;
   font-family: var(--font-ui);
-  padding: 1px 8px;
+  padding: 1px 6px;
   border-radius: 10px;
-  margin-left: 4px;
+  margin-left: 3px;
   cursor: pointer;
   vertical-align: middle;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   position: relative;
-  line-height: 1.6;
+  line-height: 1.5;
 }
-
-.ann-comment-badge .ann-badge-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-.ann-comment-badge:hover {
-  max-width: none;
-  z-index: 5;
-  background: var(--pen-deep);
-}
-.ann-comment-badge:hover .ann-badge-text { white-space: normal; }
-
-/* Standalone point comments (single-click) — slightly deeper pen. */
-.ann-point .ann-comment-badge { background: var(--pen-deep); }
+.ann-point .ann-comment-badge .ann-badge-text { display: none; }
+.ann-point .ann-comment-badge:hover { background: var(--pen-deep); }
+/* Whole highlight is clickable → edit */
+.ann-wrap:not(.ann-edit) { cursor: pointer; }
 
 .ann-delete {
   display: none;
@@ -601,7 +663,7 @@ body.view-mode .ann-edit-controls { display: none !important; }
 
 #btn-ann-cancel { background: var(--paper); color: var(--text); }
 #btn-ann-cancel:hover { background: var(--desk); }
-#btn-ann-save { background: var(--pen); color: white; border-color: var(--pen); }
+#btn-ann-save { background: var(--pen); color: var(--on-pen); border-color: var(--pen); }
 #btn-ann-save:hover { background: var(--pen-deep); }
 
 #annotation-popup .selected-preview {
@@ -617,67 +679,63 @@ body.view-mode .ann-edit-controls { display: none !important; }
   word-break: break-word;
 }
 
-/* Welcome screen — a fresh sheet */
+/* Welcome screen — the app always shows paper: the start page is a sheet */
 #welcome {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  color: var(--ink-soft);
-  gap: 14px;
-  padding: 48px 20px 24px;
+  max-width: 640px;
+  margin: 28px auto 40px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--card-shadow);
+  padding: 40px 48px 36px;
+  color: var(--ink);
   font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.55;
 }
-
+#welcome .welcome-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+#welcome .welcome-mark {
+  width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+  background: var(--pen);
+  display: grid; place-items: center;
+  color: var(--on-pen); font-size: 17px; font-weight: 700; font-family: var(--font-mono);
+  user-select: none;
+}
 #welcome h2 {
   color: var(--ink);
-  font-family: var(--font-doc);
-  font-size: 2.2em;
-  font-weight: 600;
+  font-size: 21px;
+  font-weight: 650;
   letter-spacing: -0.015em;
+  border: none;        /* .content h2 draws a rule under headings — not here */
+  margin: 0;
+  padding: 0;
 }
-#welcome .tagline { font-size: 15px; max-width: 420px; line-height: 1.6; }
-#welcome p { max-width: 460px; line-height: 1.6; font-size: 13.5px; }
-#welcome .shortcut { font-size: 12px; background: var(--desk); border: 1px solid var(--desk-deep); padding: 2px 8px; border-radius: 4px; font-family: var(--font-mono); }
-
-#btn-welcome-open {
-  margin-top: 6px;
-  padding: 10px 26px;
-  font-size: 15px;
-  font-weight: 600;
-  font-family: var(--font-ui);
-  color: white;
-  background: var(--pen);
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-#btn-welcome-open:hover { background: var(--pen-deep); }
-#welcome .drop-hint { font-size: 12.5px; color: var(--ink-soft); }
-
-#resume-bar {
-  display: none;
-  align-items: center;
-  gap: 14px;
-  background: var(--pen-wash);
-  border: 1px solid var(--wash-border);
-  border-radius: 8px;
-  padding: 10px 16px;
-  font-size: 13.5px;
-  color: var(--pen-deep);
-}
-#resume-bar button {
-  padding: 5px 14px;
-  border: none;
-  border-radius: 6px;
-  background: var(--pen);
-  color: white;
-  font-weight: 600;
+#welcome .tagline { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 24px; }
+#welcome .kbd-row {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-soft);
   font-size: 12.5px;
-  cursor: pointer;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
 }
-#resume-bar button:hover { background: var(--pen-deep); }
+#welcome .shortcut {
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+}
 
 #browser-warning {
   display: none;
@@ -688,6 +746,7 @@ body.view-mode .ann-edit-controls { display: none !important; }
   padding: 10px 16px;
   font-size: 13.5px;
   max-width: 460px;
+  margin-bottom: 18px;
 }
 
 /* Drag & drop overlay cue */
@@ -743,7 +802,7 @@ body.dragging::after {
   align-items: center;
   gap: 12px;
   position: fixed;
-  top: 52px;
+  top: 14px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 2500;
@@ -837,86 +896,6 @@ body.dragging::after {
 }
 #diagram-menu button:hover { background: var(--bg-secondary); }
 
-/* Document comments panel — the routing slip clipped to the page */
-#doc-panel {
-  display: none;
-  max-width: none;
-  margin: 0 0 14px;
-  padding: 12px 16px;
-  background: var(--pen-wash);
-  border: 1px solid var(--wash-border);
-  border-radius: 8px;
-  font-family: var(--font-ui);
-}
-#doc-panel .doc-panel-header {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-.doc-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  font-size: 14px;
-  cursor: pointer;
-}
-.doc-item:hover { background: rgba(0,0,0,0.04); }
-body.view-mode .doc-item { cursor: default; }
-body.view-mode .doc-item:hover { background: none; }
-.doc-item .doc-text { flex: 1; white-space: pre-wrap; }
-.doc-item .doc-del {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  padding: 2px 4px;
-  visibility: hidden;
-}
-.doc-item:hover .doc-del { visibility: visible; }
-.doc-item .doc-del:hover { color: var(--danger); }
-#btn-doc-add {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 13px;
-  padding: 4px 8px;
-  border-radius: 5px;
-}
-#btn-doc-add:hover { background: rgba(0,0,0,0.04); color: var(--text); }
-#doc-add-form { display: none; margin-top: 6px; }
-#doc-add-form textarea {
-  width: 100%;
-  min-height: 56px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px;
-  font-size: 13px;
-  font-family: inherit;
-  resize: vertical;
-  box-sizing: border-box;
-}
-#doc-add-form .btn-row { margin-top: 6px; display: flex; gap: 6px; justify-content: flex-end; }
-#doc-add-form .btn-row button {
-  padding: 5px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--paper);
-  cursor: pointer;
-  font-size: 13px;
-}
-#doc-add-form .btn-row .primary { background: var(--pen); color: white; border-color: var(--pen); }
-body.view-mode #doc-panel .doc-del,
-body.view-mode #btn-doc-add,
-body.view-mode #doc-add-form { display: none !important; }
-
 /* View mode: annotations visible but inert */
 body.view-mode .ann-delete { display: none !important; }
 body.view-mode .ann-comment-badge, body.view-mode .ann-hl { cursor: default; }
@@ -994,46 +973,89 @@ body.view-mode #rendered-view .content { cursor: auto; }
   text-align: left;
 }
 
-/* Recent files on the welcome screen */
-#welcome-recent { display: none; margin-top: 20px; text-align: left; }
-#welcome-recent h3 { font-size: 14px; margin-bottom: 8px; }
+/* Recent files on the welcome sheet — a list with dates on the right */
+#welcome-recent {
+  display: none;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  text-align: left;
+}
+#welcome-recent h3 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+}
 #welcome-recent button {
-  display: block;
-  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: calc(100% + 20px);
   text-align: left;
   background: none;
   border: none;
-  border-radius: 6px;
+  border-radius: 7px;
   padding: 7px 10px;
+  margin: 0 -10px;
   cursor: pointer;
   font-size: 13px;
   color: var(--text);
   overflow: hidden;
 }
 #welcome-recent button:hover { background: var(--bg-secondary); }
-#welcome-recent .recent-name { font-weight: 500; margin-right: 8px; }
+#welcome-recent .recent-name {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#welcome-recent .recent-path { flex-shrink: 0; direction: ltr; text-align: right; }
 </style>
 </head>
 <body>
 
-<div id="toolbar">
-  <button id="btn-open" title="Open a file (Ctrl+O)">Open file &#9662;</button>
-  <button id="btn-save" title="Ctrl+S">Save</button>
-  <button id="btn-refresh" title="Reload file from disk">Reload</button>
-  <button id="btn-autoreload" title="When on, external file changes reload automatically (unless you have unsaved changes)">Auto-reload: off</button>
-  <button id="btn-export" title="Export a clean copy (annotations removed)">Export &#9662;</button>
-  <div id="mode-switch" title="Ctrl+E">
-    <button id="btn-mode-annotate" class="on">&#9998; Annotate</button>
-    <button id="btn-mode-view">&#128065; View</button>
-  </div>
-  <span id="filename-display">No file open</span>
-  <span id="unsaved-indicator">&bull; unsaved</span>
-  <div class="toolbar-spacer"></div>
-  <a id="github-link" href="https://github.com/vrata48/markdown-annotator" target="_blank" rel="noopener" title="GitHub repository">
-    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+<!-- Icon set for the rail (stroke icons, referenced with <use>) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="i-folder"><path d="M2.2 5.2a1 1 0 0 1 1-1h4l1.8 1.8h5.8a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H3.2a1 1 0 0 1-1-1z"/></g>
+    <g id="i-file"><path d="M4.5 2.5h5.8l3.2 3.2v9.8h-9z"/><path d="M10.3 2.5v3.4h3.4"/></g>
+    <g id="i-history"><path d="M14.5 9a5.5 5.5 0 1 1-1.6-3.9M14.5 2.6v2.7h-2.7"/><path d="M9 6.4V9l2 1.5"/></g>
+    <g id="i-save"><path d="M3.2 4.2a1 1 0 0 1 1-1h8.1l2.5 2.5v8.1a1 1 0 0 1-1 1H4.2a1 1 0 0 1-1-1z"/><path d="M6 3.4v3.4h5.2V3.4"/><path d="M5.7 14.6v-4.2h6.6v4.2"/></g>
+    <g id="i-reload"><path d="M14.5 9a5.5 5.5 0 1 1-1.6-3.9M14.5 2.8v2.7h-2.7"/></g>
+    <g id="i-watch"><circle cx="9" cy="9" r="6"/><path d="M9 5.8V9l2.2 1.6"/></g>
+    <g id="i-pen"><path d="M3.2 14.8l.9-3.7 7.6-7.6 2.8 2.8-7.6 7.6z"/><path d="M10.4 4.8l2.8 2.8"/></g>
+    <g id="i-eye"><path d="M2 9s2.8-4.6 7-4.6S16 9 16 9s-2.8 4.6-7 4.6S2 9 2 9z"/><circle cx="9" cy="9" r="1.9"/></g>
+    <g id="i-bubble"><path d="M2.8 4h12.4v8H8.6l-3 2.8V12H2.8z"/></g>
+    <g id="i-export"><path d="M9 11.5V3M9 3 6 6M9 3l3 3M3.5 11v3.5h11V11"/></g>
+    <g id="i-moon"><path d="M14.6 10.8A5.9 5.9 0 0 1 7.2 3.4a5.9 5.9 0 1 0 7.4 7.4z"/></g>
+    <g id="i-sun"><circle cx="9" cy="9" r="3.4"/><path d="M9 1.8v1.9M9 14.3v1.9M1.8 9h1.9M14.3 9h1.9M3.9 3.9l1.35 1.35M12.75 12.75l1.35 1.35M14.1 3.9l-1.35 1.35M5.25 12.75 3.9 14.1"/></g>
+    <g id="i-github"><path d="M11.8 15.5v-2.2c0-.7-.2-1.2-.5-1.5 1.7-.2 3.4-.9 3.4-3.7 0-.8-.3-1.5-.8-2 .1-.2.4-1-.1-2 0 0-.6-.2-2.1.8a7 7 0 0 0-3.6 0c-1.5-1-2.1-.8-2.1-.8-.5 1-.2 1.8-.1 2-.5.5-.8 1.2-.8 2 0 2.8 1.7 3.5 3.4 3.7-.2.2-.4.6-.5 1.1-.4.2-1.5.5-2.2-.6-.4-.7-1.1-.8-1.1-.8"/><path d="M6.7 14.2c-.1.5-.1 1-.1 1.3"/></g>
+  </defs>
+</svg>
+
+<!-- Pen-tray rail: labeled controls on the left; the file name rides the sheet -->
+<div id="rail">
+  <div id="rail-title"><div id="app-mark">&lsaquo;&rsaquo;</div><span>Annotator</span></div>
+  <button id="btn-open" title="Open a markdown file (Ctrl+O)"><svg viewBox="0 0 18 18"><use href="#i-file"/></svg><span>Open file</span></button>
+  <button id="btn-open-folder" title="Open a folder of markdown files"><svg viewBox="0 0 18 18"><use href="#i-folder"/></svg><span>Open folder</span></button>
+  <button id="btn-recent" title="Recently opened files"><svg viewBox="0 0 18 18"><use href="#i-history"/></svg><span>Recent</span></button>
+  <button id="btn-save" title="Save (Ctrl+S)"><svg viewBox="0 0 18 18"><use href="#i-save"/></svg><span>Save</span><span class="rail-dot"></span></button>
+  <button id="btn-refresh" title="Reload file from disk"><svg viewBox="0 0 18 18"><use href="#i-reload"/></svg><span>Reload</span></button>
+  <button id="btn-autoreload" title="Auto-reload external changes"><svg viewBox="0 0 18 18"><use href="#i-watch"/></svg><span>Auto-reload</span></button>
+  <div class="rail-divider"></div>
+  <button id="btn-mode-toggle" title="View mode: read-only, no annotation popups (Ctrl+E)"><svg viewBox="0 0 18 18"><use href="#i-eye"/></svg><span>View mode</span><span class="mode-knob"><span></span></span></button>
+  <button id="annotation-count" title="Jump to comments"><svg viewBox="0 0 18 18"><use href="#i-bubble"/></svg><span>Comments</span><span class="rail-badge" id="ann-count-badge"></span></button>
+  <button id="btn-export" title="Export a clean copy (annotations removed)"><svg viewBox="0 0 18 18"><use href="#i-export"/></svg><span>Export</span></button>
+  <div class="rail-gap"></div>
+  <a id="github-link" class="icon-btn" href="https://github.com/vrata48/markdown-annotator" target="_blank" rel="noopener" title="GitHub repository">
+    <svg viewBox="0 0 18 18"><use href="#i-github"/></svg><span>GitHub</span>
   </a>
-  <button id="btn-theme" title="Toggle dark mode">&#127769;</button>
-  <button id="annotation-count" title="Show all comments"></button>
+  <button id="btn-theme" title="Toggle dark mode"><svg viewBox="0 0 18 18"><use id="theme-icon" href="#i-moon"/></svg><span id="theme-label">Dark mode</span></button>
 </div>
 
 <div id="main-container">
@@ -1045,48 +1067,35 @@ body.view-mode #rendered-view .content { cursor: auto; }
     <div id="file-list"></div>
   </div>
   <div id="rendered-view">
-    <div id="doc-panel">
-      <div class="doc-panel-header">Document comments</div>
-      <div id="doc-list"></div>
-      <button id="btn-doc-add">+ Add comment</button>
-      <div id="doc-add-form">
-        <textarea id="doc-add-input" placeholder="Comment about the whole document..."></textarea>
-        <div class="btn-row">
-          <button id="btn-doc-cancel">Cancel</button>
-          <button id="btn-doc-save" class="primary">Add</button>
-        </div>
+    <div id="doc-col">
+      <div id="file-tab">
+        <span id="tab-name">No file open</span>
+        <span class="tab-dirty" title="Unsaved changes">&bull;</span>
+        <button id="btn-close-file" title="Close file">&times;</button>
       </div>
-    </div>
-    <div class="content" id="content">
+      <div class="content" id="content"></div>
       <div id="welcome">
-        <h2>Markdown Annotator</h2>
-        <p class="tagline">Read a markdown file like a proofreader: highlight passages, leave comments, and save them back into the file as CriticMarkup any person or LLM can act on.</p>
-        <div id="browser-warning">This app needs Chrome or Edge &mdash; it opens and saves files on your computer through the File System Access API, which this browser doesn't support.</div>
-        <div id="resume-bar">
-          <span>Continue where you left off: <b id="resume-name"></b></span>
-          <button id="btn-resume">Reopen</button>
-        </div>
-        <button id="btn-welcome-open">Open a markdown file</button>
-        <p class="drop-hint">&hellip;or drop a .md file anywhere on this page</p>
-        <p>
-          <span class="shortcut">Ctrl+O</span> Open &nbsp;
-          <span class="shortcut">Ctrl+S</span> Save &nbsp;
-          <span class="shortcut">Ctrl+E</span> Switch mode &nbsp;
-          <span class="shortcut">Esc</span> Cancel
-        </p>
-        <div id="welcome-recent">
-          <h3>Recent files</h3>
-          <div id="welcome-recent-list"></div>
-        </div>
+          <div class="welcome-head">
+            <div class="welcome-mark">&lsaquo;&rsaquo;</div>
+            <h2>Markdown Annotator</h2>
+          </div>
+          <p class="tagline">Highlight passages, leave comments, and suggest edits &mdash; your feedback lives in the file itself as plain-text CriticMarkup, ready for any person or LLM to act on.</p>
+          <div id="browser-warning">This app needs Chrome or Edge &mdash; it opens and saves files on your computer through the File System Access API, which this browser doesn't support.</div>
+          <div id="welcome-recent">
+            <h3>Recent</h3>
+            <div id="welcome-recent-list"></div>
+          </div>
+          <p class="kbd-row">
+            <span><span class="shortcut">Ctrl+O</span> Open</span>
+            <span><span class="shortcut">Ctrl+S</span> Save</span>
+            <span><span class="shortcut">Ctrl+E</span> Mode</span>
+            <span><span class="shortcut">Ctrl+Z</span> Undo</span>
+          </p>
       </div>
     </div>
-  </div>
-  <div id="ann-sidebar">
-    <header>
-      <span>Comments</span>
-      <button id="btn-sidebar-close" title="Close">&times;</button>
-    </header>
-    <div id="ann-sidebar-list"></div>
+    <div id="margin-rail">
+      <div class="rail-label">Comments</div>
+    </div>
   </div>
 </div>
 
@@ -1106,8 +1115,8 @@ body.view-mode #rendered-view .content { cursor: auto; }
 <div id="edit-popup">
   <textarea id="edit-input" placeholder="Edit comment..."></textarea>
   <div class="btn-row">
-    <button id="btn-edit-cancel" style="background:white;color:var(--text);">Cancel</button>
-    <button id="btn-edit-save" style="background:var(--accent);color:white;border-color:var(--accent);">Update</button>
+    <button id="btn-edit-cancel" style="background:var(--paper);color:var(--text);">Cancel</button>
+    <button id="btn-edit-save" style="background:var(--accent);color:var(--on-pen);border-color:var(--accent);">Update</button>
   </div>
 </div>
 
@@ -1122,7 +1131,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
 <div id="notice"></div>
 <div id="ins-caret"></div>
 
-<!-- Recent files dropdown (anchored under the ▾ toolbar button) -->
+<!-- Recent files dropdown (flies out beside the rail's open button) -->
 <div id="recent-menu"></div>
 
 <!-- Export dropdown -->
@@ -1138,6 +1147,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=15"></script>
+<script src="app.js?v=23"></script>
 </body>
 </html>
