@@ -176,14 +176,6 @@ body {
   stroke: currentColor; fill: none;
   stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
 }
-#rail .rail-badge {
-  margin-left: auto;
-  font-size: 10px; font-weight: 700; line-height: 15px;
-  color: var(--on-pen); background: var(--pen);
-  border-radius: 9px; padding: 0 5.5px;
-  pointer-events: none;
-}
-#rail .rail-badge:empty { display: none; }
 #rail .rail-dot {
   margin-left: auto;
   width: 7px; height: 7px; border-radius: 50%;
@@ -272,11 +264,6 @@ body.dirty #rail .rail-dot { display: block; }
 .file-empty { padding: 14px; font-size: 12.5px; color: var(--ink-soft); text-align: center; }
 
 
-/* Flash target annotation after a margin-card jump */
-@keyframes ann-flash-kf { 0%, 60% { outline-color: var(--mark-edge); } 100% { outline-color: transparent; } }
-.ann-flash { outline: 3px solid transparent; outline-offset: 2px; border-radius: 3px; animation: ann-flash-kf 1.6s ease-out; }
-/* Hovering a margin card marks its anchor in the text (and vice versa) */
-.ann-wrap.hot { outline: 2px solid var(--pen); outline-offset: 1px; border-radius: 3px; }
 
 /* Main layout — the sheet plus a margin for comments */
 #main-container {
@@ -785,6 +772,21 @@ body.dragging::after {
   text-align: center;
 }
 #notice.show { opacity: 1; }
+#notice.notice-ok { background: var(--ok); color: var(--on-pen); }
+#notice.notice-info { background: var(--pen); color: var(--on-pen); }
+#notice.loading::before {
+  content: '';
+  display: inline-block;
+  width: 12px; height: 12px;
+  margin-right: 9px;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: notice-spin 0.8s linear infinite;
+  vertical-align: -2px;
+}
+@keyframes notice-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { #notice.loading::before { animation: none; } }
 
 /* Diagram right-click menu */
 #diagram-menu {
@@ -842,6 +844,72 @@ body.view-mode #rendered-view .content { cursor: auto; }
   color: var(--text);
 }
 #export-menu button:hover { background: var(--bg-secondary); }
+
+/* GitLab file picker */
+#gitlab-dialog {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4000;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 120px);
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 14px 16px 16px;
+}
+#gitlab-dialog.visible { display: flex; }
+#gitlab-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 650;
+}
+#gl-close { border: none; background: none; color: var(--ink-soft); cursor: pointer; font-size: 16px; padding: 0 4px; }
+#gl-close:hover { color: var(--danger); }
+#gitlab-dialog input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: var(--font-ui);
+  padding: 7px 9px;
+  outline: none;
+  min-width: 0;
+}
+#gitlab-dialog input:focus { border-color: var(--pen); }
+.gl-field { display: flex; flex-direction: column; gap: 4px; }
+.gl-field span {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+.gl-actions { display: flex; align-items: center; gap: 10px; }
+#gl-status { flex: 1; font-size: 12px; color: var(--ink-soft); min-height: 15px; }
+#gl-status.gl-error { color: var(--danger); }
+#gl-open {
+  border: none;
+  border-radius: 7px;
+  background: var(--pen);
+  color: var(--on-pen);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: var(--font-ui);
+  padding: 7px 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#gl-open:hover { background: var(--pen-deep); }
 
 /* Recent files dropdown */
 #recent-menu {
@@ -961,11 +1029,11 @@ body.view-mode #rendered-view .content { cursor: auto; }
     <g id="i-watch"><circle cx="9" cy="9" r="6"/><path d="M9 5.8V9l2.2 1.6"/></g>
     <g id="i-pen"><path d="M3.2 14.8l.9-3.7 7.6-7.6 2.8 2.8-7.6 7.6z"/><path d="M10.4 4.8l2.8 2.8"/></g>
     <g id="i-eye"><path d="M2 9s2.8-4.6 7-4.6S16 9 16 9s-2.8 4.6-7 4.6S2 9 2 9z"/><circle cx="9" cy="9" r="1.9"/></g>
-    <g id="i-bubble"><path d="M2.8 4h12.4v8H8.6l-3 2.8V12H2.8z"/></g>
     <g id="i-export"><path d="M9 11.5V3M9 3 6 6M9 3l3 3M3.5 11v3.5h11V11"/></g>
     <g id="i-moon"><path d="M14.6 10.8A5.9 5.9 0 0 1 7.2 3.4a5.9 5.9 0 1 0 7.4 7.4z"/></g>
     <g id="i-sun"><circle cx="9" cy="9" r="3.4"/><path d="M9 1.8v1.9M9 14.3v1.9M1.8 9h1.9M14.3 9h1.9M3.9 3.9l1.35 1.35M12.75 12.75l1.35 1.35M14.1 3.9l-1.35 1.35M5.25 12.75 3.9 14.1"/></g>
     <g id="i-github"><path d="M11.8 15.5v-2.2c0-.7-.2-1.2-.5-1.5 1.7-.2 3.4-.9 3.4-3.7 0-.8-.3-1.5-.8-2 .1-.2.4-1-.1-2 0 0-.6-.2-2.1.8a7 7 0 0 0-3.6 0c-1.5-1-2.1-.8-2.1-.8-.5 1-.2 1.8-.1 2-.5.5-.8 1.2-.8 2 0 2.8 1.7 3.5 3.4 3.7-.2.2-.4.6-.5 1.1-.4.2-1.5.5-2.2-.6-.4-.7-1.1-.8-1.1-.8"/><path d="M6.7 14.2c-.1.5-.1 1-.1 1.3"/></g>
+    <g id="i-tanuki"><path d="M9 15.6 2.6 9l1.7-5.9 2.3 4.6h4.8l2.3-4.6L15.4 9z"/></g>
   </defs>
 </svg>
 
@@ -974,13 +1042,13 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <div id="rail-title"><div id="app-mark">&lsaquo;&rsaquo;</div><span>Annotator</span></div>
   <button id="btn-open" title="Open a markdown file (Ctrl+O)"><svg viewBox="0 0 18 18"><use href="#i-file"/></svg><span>Open file</span></button>
   <button id="btn-open-folder" title="Open a folder of markdown files"><svg viewBox="0 0 18 18"><use href="#i-folder"/></svg><span>Open folder</span></button>
+  <button id="btn-gitlab" title="Open a markdown file from a GitLab repository"><svg viewBox="0 0 18 18"><use href="#i-tanuki"/></svg><span>Open GitLab</span></button>
   <button id="btn-recent" title="Recently opened files"><svg viewBox="0 0 18 18"><use href="#i-history"/></svg><span>Recent</span></button>
   <button id="btn-save" title="Save (Ctrl+S)"><svg viewBox="0 0 18 18"><use href="#i-save"/></svg><span>Save</span><span class="rail-dot"></span></button>
   <button id="btn-refresh" title="Reload file from disk"><svg viewBox="0 0 18 18"><use href="#i-reload"/></svg><span>Reload</span></button>
   <button id="btn-autoreload" title="Auto-reload external changes"><svg viewBox="0 0 18 18"><use href="#i-watch"/></svg><span>Auto-reload</span><span class="mode-knob"><span></span></span></button>
   <div class="rail-divider"></div>
   <button id="btn-mode-toggle" title="View mode: read-only, no annotation popups (Ctrl+E)"><svg viewBox="0 0 18 18"><use href="#i-eye"/></svg><span>View mode</span><span class="mode-knob"><span></span></span></button>
-  <button id="annotation-count" title="Jump to comments"><svg viewBox="0 0 18 18"><use href="#i-bubble"/></svg><span>Comments</span><span class="rail-badge" id="ann-count-badge"></span></button>
   <button id="btn-export" title="Export a clean copy (annotations removed)"><svg viewBox="0 0 18 18"><use href="#i-export"/></svg><span>Export</span></button>
   <div class="rail-gap"></div>
   <a id="github-link" class="icon-btn" href="https://github.com/vrata48/markdown-annotator" target="_blank" rel="noopener" title="GitHub repository">
@@ -1010,7 +1078,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
             <div class="welcome-mark">&lsaquo;&rsaquo;</div>
             <h2>Markdown Annotator</h2>
           </div>
-          <p class="tagline">Highlight passages, leave comments, and suggest edits &mdash; your feedback lives in the file itself as plain-text CriticMarkup, ready for any person or LLM to act on. <span class="local-note">Everything happens on your computer: files are opened and saved locally, and nothing is ever sent to the internet.</span></p>
+          <p class="tagline">Highlight passages, leave comments, and suggest edits &mdash; your feedback lives in the file itself as plain-text CriticMarkup, ready for any person or LLM to act on. <span class="local-note">Everything happens in your browser: files open and save locally &mdash; or commit straight to your own GitLab &mdash; and nothing is ever sent anywhere else.</span></p>
           <div id="browser-warning">This app needs Chrome or Edge &mdash; it opens and saves files on your computer through the File System Access API, which this browser doesn't support.</div>
           <div id="welcome-recent">
             <h3>Recent <button id="btn-clear-recent" title="Forget all recent files">Clear</button></h3>
@@ -1055,6 +1123,26 @@ body.view-mode #rendered-view .content { cursor: auto; }
 <div id="notice"></div>
 <div id="ins-caret"></div>
 
+<!-- GitLab: paste a file link + token, nothing else -->
+<div id="gitlab-dialog">
+  <header>
+    <span>Open from GitLab</span>
+    <button id="gl-close" title="Close">&times;</button>
+  </header>
+  <label class="gl-field">
+    <span>Path</span>
+    <input id="gl-url" type="url" placeholder="https://gitlab.example.com/group/project/-/blob/main/README.md" spellcheck="false">
+  </label>
+  <label class="gl-field">
+    <span>PAT</span>
+    <input id="gl-token" type="password" placeholder="Personal access token (api scope)" spellcheck="false" autocomplete="off">
+  </label>
+  <div class="gl-actions">
+    <div id="gl-status"></div>
+    <button id="gl-open">Open</button>
+  </div>
+</div>
+
 <!-- Recent files dropdown (flies out beside the rail's open button) -->
 <div id="recent-menu"></div>
 
@@ -1071,6 +1159,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=27"></script>
+<script src="app.js?v=32"></script>
 </body>
 </html>

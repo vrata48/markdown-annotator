@@ -6,7 +6,8 @@ const state = {
   pending: null,
   editingIdx: null,
   fileOpen: false,
-  fileHandle: null,
+  fileHandle: null,   // local file (File System Access API), or
+  remote: null,       // GitLab file: { base, projectId, projectPath, branch, path, lastCommitId }
   mode: 'annotate',   // 'annotate' | 'view'
 };
 
@@ -20,7 +21,6 @@ const popup = $('#annotation-popup');
 const annInput = $('#annotation-input');
 const selectedPreview = $('#selected-preview');
 const tabName = $('#tab-name');
-const annCountBadge = $('#ann-count-badge');
 const editPopup = $('#edit-popup');
 const editInput = $('#edit-input');
 const saveStatus = $('#save-status');
@@ -67,6 +67,7 @@ async function openHandle(handle, opts) {
     const file = await handle.getFile();
     state.rawMarkdown = await file.text();
     state.fileHandle = handle;
+    state.remote = null;
     state.fileName = file.name;
     state.displayPath = file.name;  // real paths are hidden from web pages
     state.dirty = false;
@@ -74,7 +75,7 @@ async function openHandle(handle, opts) {
     state.lastModified = file.lastModified;
     clearUndo();
     render();
-    recordRecent(handle);
+    recordRecent({ handle, name: handle.name });
     startWatch();
     // Refresh restores the file silently; a fresh tab starts on the welcome
     // screen. sessionStorage survives reload but not new tabs — exactly that.
@@ -95,9 +96,14 @@ async function tryRestoreLast() {
   if (!wasRefresh) return;
   const rec = await fetchRecent();
   if (!rec.length) return;
+  const last = rec[0];
+  if (last.remote) {  // token needs no user gesture — reopen silently
+    await openGitLabFile(last.remote, { silent: true });
+    return;
+  }
   try {
-    if (await rec[0].handle.queryPermission({ mode: 'read' }) === 'granted') {
-      await openHandle(rec[0].handle, { silent: true });
+    if (await last.handle.queryPermission({ mode: 'read' }) === 'granted') {
+      await openHandle(last.handle, { silent: true });
     }
   } catch (_) { /* dead handle — recents pruning will catch it */ }
 }
@@ -113,8 +119,14 @@ async function pickFile() {
 }
 
 async function reloadFromDisk() {
-  if (!state.fileHandle) return;
   try {
+    if (state.remote) {
+      showProgress('Reloading from GitLab…');
+      await reloadFromGitLab();
+      showNotice('Reloaded from GitLab', 'ok');
+      return;
+    }
+    if (!state.fileHandle) return;
     const file = await state.fileHandle.getFile();
     state.rawMarkdown = await file.text();
     state.dirty = false;
@@ -122,20 +134,39 @@ async function reloadFromDisk() {
     clearUndo();
     hideDiskBanner();
     render();
+    showNotice('Reloaded from disk', 'ok');
   } catch (e) {
+    hideProgress();
     alert('Failed to reload file: ' + e.message);
   }
 }
 
 // ── File watching: catch external edits (e.g. an LLM rewriting the file) ──
+// Local files poll lastModified every 3s; GitLab files poll the commits API
+// every 15s (gentler on the server, same behavior).
 let watchTimer = null;
 function startWatch() {
   if (watchTimer) clearInterval(watchTimer);
-  watchTimer = setInterval(checkDiskChange, 3000);
+  watchTimer = setInterval(checkDiskChange, state.remote ? 15000 : 3000);
 }
 
 async function checkDiskChange() {
-  if (!state.fileHandle || !state.fileOpen || document.hidden) return;
+  if (!state.fileOpen || document.hidden) return;
+  if (state.remote) {
+    try {
+      const latest = await glLatestCommitId();
+      if (!latest || latest === state.remote.lastCommitId) return;
+      if (!state.dirty && getAutoReload()) {
+        await reloadFromGitLab();
+        showNotice('File changed on GitLab — reloaded');
+      } else {
+        state.remote.lastCommitId = latest;
+        showDiskBanner(state.dirty);
+      }
+    } catch (_) { /* transient API failure — try again next tick */ }
+    return;
+  }
+  if (!state.fileHandle) return;
   try {
     const file = await state.fileHandle.getFile();
     if (file.lastModified <= state.lastModified) return;
@@ -154,10 +185,11 @@ async function checkDiskChange() {
 }
 
 function showDiskBanner(conflict) {
+  const where = state.remote ? 'on GitLab' : 'on disk';
   $('#disk-banner-msg').textContent = conflict
-    ? 'This file changed on disk and you have unsaved changes. Saving will overwrite the disk version.'
-    : 'This file changed on disk.';
-  $('#btn-disk-reload').textContent = conflict ? 'Reload from disk (discard mine)' : 'Reload';
+    ? 'This file changed ' + where + ' and you have unsaved changes. Saving will overwrite that version.'
+    : 'This file changed ' + where + '.';
+  $('#btn-disk-reload').textContent = conflict ? 'Reload (discard mine)' : 'Reload';
   $('#disk-banner').style.display = 'flex';
 }
 function hideDiskBanner() { $('#disk-banner').style.display = 'none'; }
@@ -242,6 +274,202 @@ async function openFolderFile(f) {
   }
 }
 
+// ── GitLab: open/annotate/commit repo files via the REST API ─────────────
+// Browser-only: the page talks straight to the user's GitLab (gitlab.com or
+// self-hosted) with a personal access token. Token + base URL live in
+// localStorage; a remote file is state.remote instead of state.fileHandle.
+function glConfig() {
+  let base = '', token = '';
+  try {
+    base = localStorage.getItem('gitlab-base') || '';
+    token = localStorage.getItem('gitlab-token') || '';
+  } catch (_) {}
+  return { base: (base || 'https://gitlab.com').replace(/\/+$/, ''), token };
+}
+function glSaveConfig(base, token) {
+  try {
+    localStorage.setItem('gitlab-base', base.trim());
+    localStorage.setItem('gitlab-token', token.trim());
+  } catch (_) {}
+}
+
+async function glApi(path, opts) {
+  const { base, token } = glConfig();
+  const headers = Object.assign({}, opts && opts.headers);
+  if (token) headers['PRIVATE-TOKEN'] = token;
+  let res;
+  try {
+    res = await fetch(base + '/api/v4' + path, Object.assign({}, opts, { headers }));
+  } catch (e) {
+    throw new Error('Could not reach ' + base + ' — network or CORS issue.');
+  }
+  if (!res.ok) {
+    let msg = res.status + ' ' + res.statusText;
+    try {
+      const j = await res.json();
+      if (j.message) msg = typeof j.message === 'string' ? j.message : JSON.stringify(j.message);
+      else if (j.error) msg = j.error;
+    } catch (_) {}
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+
+// GitLab serves file content base64-encoded; decode/encode as UTF-8.
+function glDecodeB64(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+async function openGitLabFile(desc, opts) {
+  const silent = opts && opts.silent;
+  if (state.dirty && !confirm('You have unsaved changes. Open another file anyway?')) return;
+  showProgress('Opening ' + desc.path + ' from GitLab…');
+  try {
+    const f = await glApi('/projects/' + desc.projectId + '/repository/files/' +
+      encodeURIComponent(desc.path) + '?ref=' + encodeURIComponent(desc.branch));
+    state.rawMarkdown = glDecodeB64(f.content);
+    state.fileHandle = null;
+    state.remote = {
+      base: glConfig().base,
+      projectId: desc.projectId,
+      projectPath: desc.projectPath,
+      branch: desc.branch,
+      path: desc.path,
+      lastCommitId: f.last_commit_id,
+    };
+    state.fileName = desc.path.split('/').pop();
+    state.displayPath = desc.projectPath + '/' + desc.path + ' @ ' + desc.branch;
+    state.dirty = false;
+    state.fileOpen = true;
+    clearUndo();
+    render();
+    recordRecent({ remote: state.remote, name: state.displayPath });
+    startWatch();
+    try { sessionStorage.setItem('had-file', '1'); } catch (_) {}
+    showNotice('Opened ' + state.fileName + ' from GitLab (' + desc.branch + ')', 'ok');
+  } catch (e) {
+    hideProgress();
+    if (!silent) showNotice('GitLab: ' + e.message);
+  }
+}
+
+// Save = commit to the branch the file was opened from. last_commit_id gives
+// optimistic locking: GitLab rejects the commit if the file changed meanwhile.
+async function glCommit(content) {
+  const r = state.remote;
+  await glApi('/projects/' + r.projectId + '/repository/files/' + encodeURIComponent(r.path), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      branch: r.branch,
+      content,
+      commit_message: 'annotations: ' + r.path,
+      last_commit_id: r.lastCommitId,
+    }),
+  });
+  const f = await glApi('/projects/' + r.projectId + '/repository/files/' +
+    encodeURIComponent(r.path) + '?ref=' + encodeURIComponent(r.branch));
+  r.lastCommitId = f.last_commit_id;
+}
+
+// Latest commit touching the file on its branch — the remote "lastModified".
+async function glLatestCommitId() {
+  const r = state.remote;
+  const commits = await glApi('/projects/' + r.projectId + '/repository/commits?ref_name=' +
+    encodeURIComponent(r.branch) + '&path=' + encodeURIComponent(r.path) + '&per_page=1');
+  return commits[0] && commits[0].id;
+}
+
+async function reloadFromGitLab() {
+  const r = state.remote;
+  const f = await glApi('/projects/' + r.projectId + '/repository/files/' +
+    encodeURIComponent(r.path) + '?ref=' + encodeURIComponent(r.branch));
+  state.rawMarkdown = glDecodeB64(f.content);
+  r.lastCommitId = f.last_commit_id;
+  state.dirty = false;
+  clearUndo();
+  hideDiskBanner();
+  render();
+}
+
+// ── GitLab dialog: one file link + one token ───────────────
+const glDialog = $('#gitlab-dialog');
+const glStatus = $('#gl-status');
+
+function glSetStatus(msg, isError) {
+  glStatus.textContent = msg || '';
+  glStatus.classList.toggle('gl-error', !!isError);
+}
+
+function showGitLabDialog() {
+  $('#gl-token').value = glConfig().token;  // remembered; the base comes from the link
+  $('#gl-url').value = '';
+  glSetStatus('');
+  glDialog.classList.add('visible');
+  $('#gl-url').focus();
+}
+function hideGitLabDialog() { glDialog.classList.remove('visible'); }
+
+// Parse a pasted GitLab file URL: <base>/<group/sub/project>/-/blob/<ref>/<file path>
+function parseGitLabUrl(input) {
+  let u;
+  try { u = new URL(input.trim()); } catch (_) { return null; }
+  const m = u.pathname.match(/^\/(.+?)\/-\/blob\/([^/]+)\/(.+?)$/);
+  if (!m) return null;
+  return {
+    base: u.origin,
+    projectPath: decodeURIComponent(m[1]),
+    ref: decodeURIComponent(m[2]),
+    path: decodeURIComponent(m[3].split('?')[0].split('#')[0]),
+  };
+}
+
+// Resolve the link and open the file. A ref that isn't a branch (pinned
+// commit SHA) falls back to the default branch — commits need a branch.
+async function glOpenFromDialog() {
+  const parsed = parseGitLabUrl($('#gl-url').value);
+  if (!parsed) {
+    glSetStatus('Paste a link to a file in a GitLab repo — the URL contains /-/blob/.', true);
+    return;
+  }
+  glSaveConfig(parsed.base, $('#gl-token').value);
+  glSetStatus('Opening ' + parsed.projectPath + '/' + parsed.path + '…');
+  try {
+    const proj = await glApi('/projects/' + encodeURIComponent(parsed.projectPath));
+    let branch = parsed.ref;
+    try {
+      await glApi('/projects/' + proj.id + '/repository/branches/' + encodeURIComponent(branch));
+    } catch (_) {
+      branch = proj.default_branch;
+      showNotice('Link pins a commit — opened branch "' + branch + '" instead');
+    }
+    hideGitLabDialog();
+    await openGitLabFile({ projectId: proj.id, projectPath: proj.path_with_namespace, branch, path: parsed.path });
+  } catch (e) {
+    glSetStatus('GitLab: ' + e.message, true);
+  }
+}
+
+$('#btn-gitlab').addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (glDialog.classList.contains('visible')) hideGitLabDialog();
+  else showGitLabDialog();
+});
+$('#gl-close').addEventListener('click', hideGitLabDialog);
+$('#gl-open').addEventListener('click', glOpenFromDialog);
+$('#gl-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') glOpenFromDialog(); });
+$('#gl-token').addEventListener('keydown', (e) => { if (e.key === 'Enter') glOpenFromDialog(); });
+document.addEventListener('mousedown', (e) => {
+  if (glDialog.classList.contains('visible') && !glDialog.contains(e.target) && !e.target.closest('#btn-gitlab')) {
+    hideGitLabDialog();
+  }
+});
+
 // ── Recent files (file handles persisted in IndexedDB) ─────
 // Web pages never see real paths; we keep the FileSystemFileHandle objects
 // themselves (they are structured-cloneable) and re-request permission on use.
@@ -278,22 +506,32 @@ async function fetchRecent() {
   }
 }
 
-async function recordRecent(handle) {
+function sameRemote(a, b) {
+  return a && b && a.base === b.base && String(a.projectId) === String(b.projectId) &&
+    a.branch === b.branch && a.path === b.path;
+}
+
+// entry: { handle, name } for local files, { remote, name } for GitLab files.
+async function recordRecent(entry) {
   try {
     const db = await idbOpen();
     let all = await idbRequest(db.transaction(IDB_STORE).objectStore(IDB_STORE).getAll());
-    // Dedupe: drop entries pointing at the same file (isSameEntry) and trim.
+    // Dedupe: drop entries pointing at the same file and trim.
     const drop = [];
     for (const e of all) {
-      try { if (await e.handle.isSameEntry(handle)) drop.push(e.id); }
-      catch (_) { drop.push(e.id); }  // dead/uncloneable handle — prune
+      if (entry.remote) {
+        if (sameRemote(e.remote, entry.remote)) drop.push(e.id);
+      } else if (e.handle) {
+        try { if (await e.handle.isSameEntry(entry.handle)) drop.push(e.id); }
+        catch (_) { drop.push(e.id); }  // dead/uncloneable handle — prune
+      }
     }
     all = all.filter(e => !drop.includes(e.id)).sort((a, b) => b.ts - a.ts);
     for (const e of all.slice(MAX_RECENT - 1)) drop.push(e.id);
     const tx = db.transaction(IDB_STORE, 'readwrite');
     const store = tx.objectStore(IDB_STORE);
     for (const id of drop) store.delete(id);
-    store.add({ handle, name: handle.name, ts: Date.now() });
+    store.add({ handle: entry.handle || null, remote: entry.remote || null, name: entry.name, ts: Date.now() });
     await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
     db.close();
   } catch (e) { /* recents are best-effort */ }
@@ -322,9 +560,13 @@ function recentItemButton(f) {
   name.textContent = f.name;
   const meta = document.createElement('span');
   meta.className = 'recent-path';
-  meta.textContent = 'opened ' + new Date(f.ts).toLocaleDateString();
+  meta.textContent = (f.remote ? 'GitLab · ' : '') + 'opened ' + new Date(f.ts).toLocaleDateString();
   btn.append(name, meta);
-  btn.addEventListener('click', () => { hideRecentMenu(); openHandle(f.handle); });
+  btn.addEventListener('click', () => {
+    hideRecentMenu();
+    if (f.remote) openGitLabFile(f.remote);
+    else openHandle(f.handle);
+  });
   return btn;
 }
 
@@ -367,20 +609,27 @@ async function refreshWelcomeRecent() {
 
 let savePending = false;
 async function saveFile() {
-  if (!state.fileOpen || !state.fileHandle || savePending) return;
+  if (!state.fileOpen || savePending) return;
+  if (!state.fileHandle && !state.remote) return;
   savePending = true;
   const content = state.rawMarkdown;
   try {
-    if (await state.fileHandle.queryPermission({ mode: 'readwrite' }) !== 'granted' &&
-        await state.fileHandle.requestPermission({ mode: 'readwrite' }) !== 'granted') {
-      alert('Write access was not granted — the file was not saved.');
-      return;
+    if (state.remote) {
+      showProgress('Committing to GitLab…');
+      await glCommit(content);  // re-baselines lastCommitId itself
+      hideProgress();
+    } else {
+      if (await state.fileHandle.queryPermission({ mode: 'readwrite' }) !== 'granted' &&
+          await state.fileHandle.requestPermission({ mode: 'readwrite' }) !== 'granted') {
+        alert('Write access was not granted — the file was not saved.');
+        return;
+      }
+      const writable = await state.fileHandle.createWritable();
+      await writable.write(content);
+      await writable.close();
+      // Re-baseline the watcher so our own write isn't reported as external.
+      try { state.lastModified = (await state.fileHandle.getFile()).lastModified; } catch (_) {}
     }
-    const writable = await state.fileHandle.createWritable();
-    await writable.write(content);
-    await writable.close();
-    // Re-baseline the watcher so our own write isn't reported as external.
-    try { state.lastModified = (await state.fileHandle.getFile()).lastModified; } catch (_) {}
     // Only clear dirty if nothing changed while the write was in flight.
     if (state.rawMarkdown === content) {
       state.dirty = false;
@@ -389,7 +638,13 @@ async function saveFile() {
     flashSaved();
     hideDiskBanner();
   } catch (e) {
-    alert('Save failed: ' + e.message);
+    hideProgress();
+    // GitLab rejects the commit when the file moved under us (optimistic lock).
+    if (state.remote && e.status === 400 && /changed/i.test(e.message)) {
+      showDiskBanner(true);
+    } else {
+      alert('Save failed: ' + e.message);
+    }
   } finally {
     savePending = false;
   }
@@ -409,6 +664,7 @@ function closeFile() {
   state.fileName = '';
   state.displayPath = '';
   state.fileHandle = null;
+  state.remote = null;
   state.dirty = false;
   state.fileOpen = false;
   clearUndo();
@@ -416,7 +672,6 @@ function closeFile() {
   hideEditPopup();
   hideDiskBanner();
   contentEl.innerHTML = '';
-  annCountBadge.textContent = '';
   setMode('annotate');
   if (folder) { folder.currentPath = null; renderFileSidebar(); }
   // A refresh after closing should land on the welcome screen, not reopen.
@@ -426,21 +681,6 @@ function closeFile() {
 }
 $('#btn-close-file').addEventListener('click', closeFile);
 
-// ── Annotation navigation ──────────────────────────────────
-function jumpToGroup(group) {
-  const el = contentEl.querySelector('[data-ann-group="' + group + '"]');
-  if (!el) return;
-  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  el.classList.remove('ann-flash');
-  void el.offsetWidth;  // restart the animation
-  el.classList.add('ann-flash');
-}
-
-// Rail comments button: scroll to the first annotation in the document.
-$('#annotation-count').addEventListener('click', () => {
-  const first = contentEl.querySelector('.ann-wrap');
-  if (first) jumpToGroup(parseInt(first.dataset.annGroup, 10));
-});
 
 // ── Render ─────────────────────────────────────────────────
 function render() {
@@ -497,10 +737,6 @@ function render() {
   });
 
   updateToolbar();
-  const groups = new Set(placeholders.map(p => p.group)).size;
-  annCountBadge.textContent = groups > 0 ? String(groups) : '';
-  $('#annotation-count').title = groups > 0
-    ? `${groups} annotation${groups > 1 ? 's' : ''} — jump to first` : 'No annotations yet';
 
   initTableWrap();
   initTableResize();
@@ -677,7 +913,6 @@ function updateToolbar() {
   $('#btn-autoreload').disabled = noFile;
   $('#btn-export').disabled = noFile;
   $('#btn-mode-toggle').disabled = noFile;
-  $('#annotation-count').disabled = noFile;
 }
 
 function markDirty() {
@@ -998,14 +1233,27 @@ function commitAnnotation() {
   hideAnnotationPopup();
 }
 
-// Transient toast for "can't annotate here" notices.
+// Toasts: transient notices (red by default, 'ok' green, 'info' blue) and a
+// sticky progress variant with a spinner for slow operations (GitLab calls).
 let noticeTimer = null;
-function showNotice(msg) {
+function setToast(msg, kind, ms) {
   const el = $('#notice');
   el.textContent = msg;
+  el.classList.remove('notice-ok', 'notice-info', 'loading');
+  if (kind === 'ok') el.classList.add('notice-ok');
+  else if (kind === 'info') el.classList.add('notice-info');
   el.classList.add('show');
   clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => el.classList.remove('show'), 2600);
+  if (ms) noticeTimer = setTimeout(() => el.classList.remove('show'), ms);
+}
+function showNotice(msg, kind) { setToast(msg, kind, 2600); }
+function showProgress(msg) {
+  setToast(msg, 'info');           // sticky — cleared by hideProgress or the next toast
+  $('#notice').classList.add('loading');
+}
+function hideProgress() {
+  const el = $('#notice');
+  if (el.classList.contains('loading')) el.classList.remove('show', 'loading');
 }
 
 // ── Edit annotation popup ──────────────────────────────────
@@ -1413,6 +1661,7 @@ $('#btn-edit-cancel').addEventListener('click', hideEditPopup);
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    if (glDialog.classList.contains('visible')) { hideGitLabDialog(); return; }
     if (recentMenu.classList.contains('visible')) { hideRecentMenu(); return; }
     if (diagramMenu.classList.contains('visible')) { hideDiagramMenu(); return; }
     if (editPopup.classList.contains('visible')) { hideEditPopup(); return; }

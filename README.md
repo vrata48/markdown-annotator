@@ -23,7 +23,7 @@ Reviewing LLM-generated (or human-written) markdown usually means pasting text b
 - Rendered as red strikethrough / green underline; hover shows **✓ accept / ✗ reject**, which rewrite the source accordingly.
 
 ### Reviewing
-- **Everything in the document** — comments and suggestions live directly in the text; hover a badge to read a long comment in full, click any highlight to edit it. The rail's comment counter jumps to the first annotation.
+- **Everything in the document** — comments and suggestions live directly in the text; hover a badge to read a long comment in full, click any highlight to edit it.
 - **Annotate / View modes** (Ctrl+E) — View mode makes the document behave like a normal page: select, copy, click without popups; annotations stay visible but read-only.
 - **Undo** (Ctrl+Z) — reverts annotation operations, 50 steps deep.
 
@@ -31,6 +31,7 @@ Reviewing LLM-generated (or human-written) markdown usually means pasting text b
 - **Real local files** — opens and saves directly to your disk via the File System Access API. No uploads, nothing leaves your machine.
 - **Drag & drop** a `.md` anywhere on the page to open it.
 - **Folder mode** — open a directory; a sidebar lists every markdown file in the tree.
+- **GitLab mode** — open a markdown file straight from a GitLab repo (gitlab.com or self-hosted, personal access token, browser-to-GitLab only — no middleman server). Saving commits to the branch you opened from, with conflict detection if the file changed remotely; the watcher polls for new commits just like it watches local files.
 - **Recent files** — one click away in the Open file dropdown; the last file reopens automatically after a page refresh (new tabs start clean).
 - **Disk watching** — the app notices when the open file changes on disk (an LLM rewriting it, another editor saving). Default: a banner offers to reload. Flip the **Auto-reload** toggle in the left rail to have clean files reload silently; conflicting unsaved changes always warn first.
 

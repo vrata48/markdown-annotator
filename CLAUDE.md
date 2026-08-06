@@ -21,7 +21,8 @@ Browser-only, single-page markdown annotator. No server, no build step, no packa
 ## File I/O rules (Chromium-only, by decision)
 
 - Open/save via File System Access API (`showOpenFilePicker`, `createWritable`); drag-drop via `getAsFileSystemHandle`. Non-Chromium gets a warning banner — do not add fallbacks without asking.
-- Recents = `FileSystemFileHandle` objects persisted in IndexedDB (`md-annotator`/`recents`). Real paths are unavailable to web pages. Dedupe uses `isSameEntry` (async!) — IndexedDB transactions auto-commit while awaiting it, hence the deliberate two-phase read-then-write in `recordRecent`.
+- **GitLab mode** (2026-08): a file can instead come from a GitLab repo — `state.remote` (`{base, projectId, projectPath, branch, path, lastCommitId}`) replaces `state.fileHandle`. PAT + base URL in localStorage (`gitlab-base`/`gitlab-token`); all calls go through `glApi()` straight from the browser (needs API CORS on self-hosted instances). Save = commit to the opened branch with `last_commit_id` as optimistic lock (409-style 400 → conflict banner); watching polls the commits API every 15s (vs 3s for disk). Every open/save/watch/recents path must handle both `state.fileHandle` and `state.remote`.
+- Recents = `FileSystemFileHandle` objects **or** remote descriptors persisted in IndexedDB (`md-annotator`/`recents`), entries `{handle|null, remote|null, name, ts}`. Real paths are unavailable to web pages. Dedupe uses `isSameEntry` (async!) for local, field comparison (`sameRemote`) for remote — IndexedDB transactions auto-commit while awaiting, hence the deliberate two-phase read-then-write in `recordRecent`.
 - Session restore: `tryRestoreLast()` — silent reopen after refresh if permission is still granted; otherwise nothing (the welcome recents list covers reopening — requestPermission needs a user gesture anyway).
 
 ## Testing / verification
