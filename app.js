@@ -170,7 +170,7 @@ function refreshAutoReloadButton() {
   const on = getAutoReload();
   const btn = $('#btn-autoreload');
   btn.title = 'Auto-reload external changes: ' + (on ? 'on' : 'off');
-  btn.classList.toggle('active', on);
+  btn.classList.toggle('on', on);
 }
 $('#btn-autoreload').addEventListener('click', () => {
   try { localStorage.setItem('auto-reload', getAutoReload() ? '0' : '1'); } catch (_) {}

@@ -194,8 +194,8 @@ body {
 }
 body.dirty #rail .rail-dot { display: block; }
 
-/* View-mode toggle — a settings-style row with an on/off switch */
-#rail #btn-mode-toggle .mode-knob {
+/* Toggle rows (View mode, Auto-reload) — settings-style on/off switches */
+#rail .mode-knob {
   margin-left: auto;
   width: 28px;
   height: 16px;
@@ -205,7 +205,7 @@ body.dirty #rail .rail-dot { display: block; }
   flex-shrink: 0;
   transition: background 0.15s;
 }
-#rail #btn-mode-toggle .mode-knob span {
+#rail .mode-knob span {
   position: absolute;
   top: 2px;
   left: 2px;
@@ -216,10 +216,10 @@ body.dirty #rail .rail-dot { display: block; }
   box-shadow: 0 1px 2px rgba(27,33,41,0.25);
   transition: left 0.15s;
 }
-#rail #btn-mode-toggle.on .mode-knob { background: var(--pen); }
-#rail #btn-mode-toggle.on .mode-knob span { left: 14px; }
+#rail button.on .mode-knob { background: var(--pen); }
+#rail button.on .mode-knob span { left: 14px; }
 @media (prefers-reduced-motion: reduce) {
-  #rail #btn-mode-toggle .mode-knob, #rail #btn-mode-toggle .mode-knob span { transition: none; }
+  #rail .mode-knob, #rail .mode-knob span { transition: none; }
 }
 
 /* Folder file list — docks between the rail and the document */
@@ -1046,7 +1046,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button id="btn-recent" title="Recently opened files"><svg viewBox="0 0 18 18"><use href="#i-history"/></svg><span>Recent</span></button>
   <button id="btn-save" title="Save (Ctrl+S)"><svg viewBox="0 0 18 18"><use href="#i-save"/></svg><span>Save</span><span class="rail-dot"></span></button>
   <button id="btn-refresh" title="Reload file from disk"><svg viewBox="0 0 18 18"><use href="#i-reload"/></svg><span>Reload</span></button>
-  <button id="btn-autoreload" title="Auto-reload external changes"><svg viewBox="0 0 18 18"><use href="#i-watch"/></svg><span>Auto-reload</span></button>
+  <button id="btn-autoreload" title="Auto-reload external changes"><svg viewBox="0 0 18 18"><use href="#i-watch"/></svg><span>Auto-reload</span><span class="mode-knob"><span></span></span></button>
   <div class="rail-divider"></div>
   <button id="btn-mode-toggle" title="View mode: read-only, no annotation popups (Ctrl+E)"><svg viewBox="0 0 18 18"><use href="#i-eye"/></svg><span>View mode</span><span class="mode-knob"><span></span></span></button>
   <button id="annotation-count" title="Jump to comments"><svg viewBox="0 0 18 18"><use href="#i-bubble"/></svg><span>Comments</span><span class="rail-badge" id="ann-count-badge"></span></button>
@@ -1147,6 +1147,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=23"></script>
+<script src="app.js?v=24"></script>
 </body>
 </html>
