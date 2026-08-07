@@ -36,6 +36,19 @@ the page talks directly to the GitLab REST API (v4) — no middleman server, kee
   dedupe compares base+project+branch+path (`sameRemote`). Remote entries silently
   restore on refresh (no permission gesture needed, unlike local handles).
 
+## Commit dialog (added same day)
+
+The first Ctrl+S of a remote file opens a commit dialog instead of committing blindly:
+
+- **Commit to `<opened branch>`** (default), or
+- **Commit to another branch** — prefilled `annotations/<file>`; the branch is created from
+  the opened branch if it doesn't exist — with an optional **merge request back** to the
+  opened branch (created only if one isn't already open; `remove_source_branch` set).
+
+Choosing another branch re-points `state.remote.branch`, so subsequent saves, the watcher,
+reloads, and the recents entry all follow the annotation branch. The choice sticks for the
+session (`saveConfigured`); reopening the file asks again.
+
 ## Caveats
 
 - Self-hosted instances must serve CORS headers on `/api/v4` (gitlab.com does).

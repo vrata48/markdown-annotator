@@ -397,6 +397,103 @@ async function reloadFromGitLab() {
   render();
 }
 
+// ── Remote commit dialog: current branch, or another branch (+ MR) ────────
+// Shown on the first save of each remote file; the choice sticks for the
+// session (switching branch re-points state.remote, so later saves, the
+// watcher, and reloads all follow the annotation branch).
+const commitDialog = $('#commit-dialog');
+
+function cdSetStatus(msg, isError) {
+  const el = $('#cd-status');
+  el.textContent = msg || '';
+  el.classList.toggle('gl-error', !!isError);
+}
+
+function showCommitDialog() {
+  $('#cd-branch-name').textContent = state.remote.branch;
+  $('#cd-mr-target').textContent = state.remote.branch;
+  if (!$('#cd-branch').value.trim()) {
+    $('#cd-branch').value = 'annotations/' + state.fileName.replace(/\.[^.]+$/, '').toLowerCase();
+  }
+  cdSetStatus('');
+  cdSyncRows();
+  commitDialog.classList.add('visible');
+}
+function hideCommitDialog() { commitDialog.classList.remove('visible'); }
+function cdSyncRows() {
+  $('#cd-other-row').classList.toggle('cd-disabled', !$('#cd-other').checked);
+}
+
+async function ensureMergeRequest(r, targetBranch) {
+  const existing = await glApi('/projects/' + r.projectId + '/merge_requests?state=opened' +
+    '&source_branch=' + encodeURIComponent(r.branch) + '&target_branch=' + encodeURIComponent(targetBranch));
+  if (existing.length) {
+    showNotice('Committed — merge request !' + existing[0].iid + ' is already open', 'ok');
+    return;
+  }
+  const mr = await glApi('/projects/' + r.projectId + '/merge_requests', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      source_branch: r.branch,
+      target_branch: targetBranch,
+      title: 'Annotations: ' + r.path,
+      remove_source_branch: true,
+    }),
+  });
+  showNotice('Committed — merge request !' + mr.iid + ' opened', 'ok');
+}
+
+async function cdCommit() {
+  const r = state.remote;
+  if (!r) { hideCommitDialog(); return; }
+  if (!$('#cd-other').checked) {
+    r.saveConfigured = true;
+    hideCommitDialog();
+    await saveFile();
+    return;
+  }
+  const target = $('#cd-branch').value.trim();
+  if (!target) { cdSetStatus('Branch name is required.', true); return; }
+  const src = r.branch;
+  $('#cd-commit').disabled = true;
+  cdSetStatus('Preparing branch…');
+  try {
+    let exists = true;
+    try {
+      await glApi('/projects/' + r.projectId + '/repository/branches/' + encodeURIComponent(target));
+    } catch (_) { exists = false; }
+    if (!exists) {
+      await glApi('/projects/' + r.projectId + '/repository/branches?branch=' + encodeURIComponent(target) +
+        '&ref=' + encodeURIComponent(src), { method: 'POST' });
+    }
+    // The open file now lives on the annotation branch; MRs point back home.
+    r.mrTarget = src;
+    r.branch = target;
+    r.saveConfigured = true;
+    state.displayPath = r.projectPath + '/' + r.path + ' @ ' + target;
+    hideCommitDialog();
+    await saveFile();
+    if (!state.dirty && $('#cd-mr').checked) await ensureMergeRequest(r, src);
+    recordRecent({ remote: r, name: state.displayPath });
+    updateToolbar();
+  } catch (e) {
+    cdSetStatus('GitLab: ' + e.message, true);
+  } finally {
+    $('#cd-commit').disabled = false;
+  }
+}
+
+$('#cd-close').addEventListener('click', hideCommitDialog);
+$('#cd-commit').addEventListener('click', cdCommit);
+$('#cd-current').addEventListener('change', cdSyncRows);
+$('#cd-other').addEventListener('change', cdSyncRows);
+$('#cd-branch').addEventListener('focus', () => { $('#cd-other').checked = true; cdSyncRows(); });
+$('#cd-branch').addEventListener('keydown', (e) => { if (e.key === 'Enter') cdCommit(); });
+document.addEventListener('mousedown', (e) => {
+  if (commitDialog.classList.contains('visible') && !commitDialog.contains(e.target)) hideCommitDialog();
+});
+
 // ── GitLab dialog: one file link + one token ───────────────
 const glDialog = $('#gitlab-dialog');
 const glStatus = $('#gl-status');
@@ -611,6 +708,8 @@ let savePending = false;
 async function saveFile() {
   if (!state.fileOpen || savePending) return;
   if (!state.fileHandle && !state.remote) return;
+  // First save of a remote file: ask where the commit should go.
+  if (state.remote && !state.remote.saveConfigured) { showCommitDialog(); return; }
   savePending = true;
   const content = state.rawMarkdown;
   try {
@@ -1487,6 +1586,25 @@ $('#btn-theme').addEventListener('click', () => {
   applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
 });
 
+// ── Rail collapse (manual toggle; narrow screens force it) ─
+const railMq = window.matchMedia('(max-width: 768px)');
+function getRailPref() {
+  try { return localStorage.getItem('rail-collapsed') === '1'; } catch (_) { return false; }
+}
+function applyRailCollapsed() {
+  const collapsed = railMq.matches || getRailPref();
+  document.body.classList.toggle('rail-collapsed', collapsed);
+  $('#rail-toggle-icon').setAttribute('href', collapsed ? '#i-chev-r' : '#i-chev-l');
+  $('#rail-toggle-label').textContent = collapsed ? 'Expand' : 'Collapse';
+  $('#btn-rail-toggle').title = collapsed ? 'Expand the panel' : 'Collapse the panel';
+}
+railMq.addEventListener('change', applyRailCollapsed);
+$('#btn-rail-toggle').addEventListener('click', () => {
+  try { localStorage.setItem('rail-collapsed', getRailPref() ? '0' : '1'); } catch (_) {}
+  applyRailCollapsed();
+});
+applyRailCollapsed();
+
 // ── Annotate / View mode ───────────────────────────────────
 function setMode(mode) {
   state.mode = mode;
@@ -1661,6 +1779,7 @@ $('#btn-edit-cancel').addEventListener('click', hideEditPopup);
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    if (commitDialog.classList.contains('visible')) { hideCommitDialog(); return; }
     if (glDialog.classList.contains('visible')) { hideGitLabDialog(); return; }
     if (recentMenu.classList.contains('visible')) { hideRecentMenu(); return; }
     if (diagramMenu.classList.contains('visible')) { hideDiagramMenu(); return; }
