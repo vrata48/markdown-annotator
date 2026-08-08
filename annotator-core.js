@@ -111,6 +111,14 @@
     return out;
   }
 
+  // A comment is embedded verbatim between {>> and <<}, so a literal "<<}" in
+  // the user's text would close the annotation early and spill the remainder
+  // into the document as body text. Break the token with a space — the comment
+  // stays readable to both humans and LLMs, and the file stays parseable.
+  function safeComment(s) {
+    return String(s == null ? '' : s).replace(/<<\}/g, '<< }');
+  }
+
   // Wrap [start,end) in a substitution suggestion {~~old~>new~~}.
   function suggestEdit(src, start, end, replacement) {
     const old = src.slice(start, end);
@@ -120,6 +128,7 @@
   // Change a group's comment (only its pair/point member carries the comment).
   // Suggested edits (del/ins/sub) carry no comment and are left untouched.
   function updateGroup(src, group, newComment) {
+    newComment = safeComment(newComment);
     let out = src;
     const items = scanAnnotations(src);
     for (let k = items.length - 1; k >= 0; k--) {
@@ -168,10 +177,12 @@
   // Find [start,end) ranges of fenced code blocks in the source.
   // CRLF-aware: JS `.` does not match `\r`, so the old `.*\n` pattern silently
   // matched nothing on Windows (CRLF) files. Use `[^\r\n]*` + `\r?\n` and allow
-  // indentation/trailing space around the closing fence.
+  // indentation/trailing space around the closing fence. The opening fence may
+  // itself be indented up to 3 spaces (CommonMark) — missing those made
+  // annotations inside such a fence "live" and shifted the mermaid fence index.
   function codeFenceRanges(src) {
     const ranges = [];
-    const fenceRegex = /^(`{3,}|~{3,})[^\r\n]*\r?\n[\s\S]*?\r?\n[ \t]*\1[ \t]*(?=\r?\n|$)/gm;
+    const fenceRegex = /^ {0,3}(`{3,}|~{3,})[^\r\n]*\r?\n[\s\S]*?\r?\n[ \t]*\1[ \t]*(?=\r?\n|$)/gm;
     let fm;
     while ((fm = fenceRegex.exec(src)) !== null) {
       ranges.push([fm.index, fm.index + fm[0].length]);
@@ -490,6 +501,7 @@
   // LAST one (rightmost) also gets the {>> comment <<} badge. point/blockComment
   // inserts each emit their own comment. Applied right-to-left so offsets stay valid.
   function applyInserts(src, inserts, comment) {
+    comment = safeComment(comment);
     const pairs = inserts.filter(i => i.type === 'pair');
     const lastPairStart = pairs.length ? Math.max.apply(null, pairs.map(p => p.start)) : -1;
     const ordered = inserts.slice().sort((a, b) => posOf(b) - posOf(a));
@@ -530,6 +542,7 @@
     acceptGroup,
     stripAll,
     suggestEdit,
+    safeComment,
     docZone,
     updateGroup,
     getGroupComment,

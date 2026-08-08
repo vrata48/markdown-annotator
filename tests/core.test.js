@@ -170,3 +170,44 @@ test('applyInserts: point comment', () => {
   const out = Core.applyInserts('one two', [{ type: 'point', pos: 3 }], 'c');
   assert.equal(out, 'one{>> c <<} two');
 });
+
+// ── safeComment: a comment must not be able to close its own annotation ──
+test('safeComment: breaks a literal <<} in the comment text', () => {
+  assert.equal(Core.safeComment('use <<} to close'), 'use << } to close');
+  assert.equal(Core.safeComment('plain text'), 'plain text');
+  assert.equal(Core.safeComment(null), '');
+});
+
+test('applyInserts: comment containing <<} stays one annotation', () => {
+  const out = Core.applyInserts('one two three', [{ type: 'pair', start: 4, end: 7 }], 'close with <<} here');
+  const items = Core.scanAnnotations(out);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].kind, 'pair');
+  assert.equal(items[0].comment.trim(), 'close with << } here');
+  // nothing leaked into the document body
+  assert.equal(Core.stripAll(out), 'one two three');
+});
+
+test('updateGroup: comment containing <<} stays one annotation', () => {
+  const src = 'one {== two ==}{>> old <<} three';
+  const g = Core.scanAnnotations(src)[0].group;
+  const out = Core.updateGroup(src, g, 'now with <<} inside');
+  const items = Core.scanAnnotations(out);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].comment.trim(), 'now with << } inside');
+  assert.equal(Core.stripAll(out), 'one two three');
+});
+
+// ── codeFenceRanges: CommonMark allows the opening fence to be indented ──
+test('codeFenceRanges: detects a fence indented up to 3 spaces', () => {
+  const src = '# H\n\n   ```mermaid\n  graph TD\n   ```\n\ntail\n';
+  const ranges = Core.codeFenceRanges(src);
+  assert.equal(ranges.length, 1);
+  assert.ok(src.slice(ranges[0][0], ranges[0][1]).includes('graph TD'));
+});
+
+test('preprocessCriticMarkup: annotations inside an indented fence stay literal', () => {
+  const src = '# H\n\n  ```\n  {>> not an annotation <<}\n  ```\n\n{>> real one <<}\n';
+  const { count } = Core.preprocessCriticMarkup(src);
+  assert.equal(count, 1);
+});

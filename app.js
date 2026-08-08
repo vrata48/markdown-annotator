@@ -53,10 +53,21 @@ const FILE_TYPES = [{
   accept: { 'text/markdown': ['.md', '.markdown', '.mdx', '.txt'] },
 }];
 
+// Any path that replaces the source from outside (open, reload, an external
+// change picked up by the watcher) must drop in-flight annotation state:
+// state.pending holds source OFFSETS and state.editingIdx a group id, both
+// computed against the old text. Committing them afterwards splices at the
+// wrong position and corrupts the document.
+function discardPendingEdits() {
+  hideAnnotationPopup();
+  hideEditPopup();
+}
+
 async function openHandle(handle, opts) {
   const silent = opts && opts.silent;
   if (state.dirty && !confirm('You have unsaved changes. Open another file anyway?')) return;
   cancelAutoSave();  // the user just chose to discard — a pending timer must not save
+  discardPendingEdits();
   try {
     // Read-only here: asking for readwrite at open time makes Chrome show a
     // confusing "Save changes to file?" prompt. Write access is requested on
@@ -132,6 +143,7 @@ async function reloadFromDisk() {
     }
     if (!state.fileHandle) return;
     const file = await state.fileHandle.getFile();
+    discardPendingEdits();
     state.rawMarkdown = await file.text();
     state.dirty = false;
     state.diskMoved = false;
@@ -177,6 +189,7 @@ async function checkDiskChange() {
     if (file.lastModified <= state.lastModified) return;
     if (!state.dirty && getAutoReload()) {
       // Opted in and no local changes — pick up the new content silently.
+      discardPendingEdits();
       state.rawMarkdown = await file.text();
       state.lastModified = file.lastModified;
       clearUndo();
@@ -329,23 +342,49 @@ async function openFolderFile(f) {
 // Browser-only: the page talks straight to the user's GitLab (gitlab.com or
 // self-hosted) with a personal access token. Token + base URL live in
 // localStorage; a remote file is state.remote instead of state.fileHandle.
-function glConfig() {
-  let base = '', token = '';
+function glNormBase(base) { return String(base || '').trim().replace(/\/+$/, ''); }
+
+// Tokens are per instance: a recent file on gitlab.com must not be fetched
+// with (or committed using) a self-hosted instance's token just because that
+// one was configured last. `gitlab-base` remembers the instance used last;
+// `gitlab-tokens` maps base → token.
+function glTokens() {
+  try { return JSON.parse(localStorage.getItem('gitlab-tokens') || '{}') || {}; }
+  catch (_) { return {}; }
+}
+function glTokenFor(base) {
+  const b = glNormBase(base);
+  const map = glTokens();
+  if (map[b]) return map[b];
+  // Migration: the single-token era stored one key with no instance attached.
   try {
-    base = localStorage.getItem('gitlab-base') || '';
-    token = localStorage.getItem('gitlab-token') || '';
+    const legacy = localStorage.getItem('gitlab-token') || '';
+    if (legacy && b === glNormBase(localStorage.getItem('gitlab-base'))) return legacy;
   } catch (_) {}
-  return { base: (base || 'https://gitlab.com').replace(/\/+$/, ''), token };
+  return '';
+}
+function glConfig() {
+  let base = '';
+  try { base = localStorage.getItem('gitlab-base') || ''; } catch (_) {}
+  base = glNormBase(base) || 'https://gitlab.com';
+  return { base, token: glTokenFor(base) };
 }
 function glSaveConfig(base, token) {
+  const b = glNormBase(base) || 'https://gitlab.com';
   try {
-    localStorage.setItem('gitlab-base', base.trim());
-    localStorage.setItem('gitlab-token', token.trim());
+    localStorage.setItem('gitlab-base', b);
+    const map = glTokens();
+    const t = String(token || '').trim();
+    if (t) map[b] = t; else delete map[b];
+    localStorage.setItem('gitlab-tokens', JSON.stringify(map));
   } catch (_) {}
 }
 
-async function glApi(path, opts) {
-  const { base, token } = glConfig();
+// `base` targets a specific instance (a remote file carries its own); it
+// defaults to the instance configured last.
+async function glApi(path, opts, base) {
+  base = glNormBase(base) || glConfig().base;
+  const token = glTokenFor(base);
   const headers = Object.assign({}, opts && opts.headers);
   if (token) headers['PRIVATE-TOKEN'] = token;
   let res;
@@ -381,13 +420,17 @@ async function openGitLabFile(desc, opts) {
   if (state.dirty && !confirm('You have unsaved changes. Open another file anyway?')) return;
   cancelAutoSave();  // the user just chose to discard — a pending timer must not save
   showProgress('Opening ' + desc.path + ' from GitLab…');
+  // A recents entry carries the instance it came from; a fresh open from the
+  // dialog has just written that instance to the config.
+  const base = glNormBase(desc.base) || glConfig().base;
   try {
     const f = await glApi('/projects/' + desc.projectId + '/repository/files/' +
-      encodeURIComponent(desc.path) + '?ref=' + encodeURIComponent(desc.branch));
+      encodeURIComponent(desc.path) + '?ref=' + encodeURIComponent(desc.branch), null, base);
+    discardPendingEdits();
     state.rawMarkdown = glDecodeB64(f.content);
     state.fileHandle = null;
     state.remote = {
-      base: glConfig().base,
+      base,
       projectId: desc.projectId,
       projectPath: desc.projectPath,
       branch: desc.branch,
@@ -424,24 +467,33 @@ async function glCommit(content) {
       commit_message: 'annotations: ' + r.path,
       last_commit_id: r.lastCommitId,
     }),
-  });
+  }, r.base);
+  // Re-baseline from the branch head. Someone else's commit can land between
+  // the PUT and this GET; adopting its id blindly would silently disarm both
+  // the optimistic lock and the watcher, so compare content and flag a
+  // conflict when the head no longer holds what we just wrote.
   const f = await glApi('/projects/' + r.projectId + '/repository/files/' +
-    encodeURIComponent(r.path) + '?ref=' + encodeURIComponent(r.branch));
+    encodeURIComponent(r.path) + '?ref=' + encodeURIComponent(r.branch), null, r.base);
   r.lastCommitId = f.last_commit_id;
+  if (glDecodeB64(f.content) !== content) {
+    showDiskBanner(false);
+    showNotice('Someone else committed to this branch — reload before continuing');
+  }
 }
 
 // Latest commit touching the file on its branch — the remote "lastModified".
 async function glLatestCommitId() {
   const r = state.remote;
   const commits = await glApi('/projects/' + r.projectId + '/repository/commits?ref_name=' +
-    encodeURIComponent(r.branch) + '&path=' + encodeURIComponent(r.path) + '&per_page=1');
+    encodeURIComponent(r.branch) + '&path=' + encodeURIComponent(r.path) + '&per_page=1', null, r.base);
   return commits[0] && commits[0].id;
 }
 
 async function reloadFromGitLab() {
   const r = state.remote;
   const f = await glApi('/projects/' + r.projectId + '/repository/files/' +
-    encodeURIComponent(r.path) + '?ref=' + encodeURIComponent(r.branch));
+    encodeURIComponent(r.path) + '?ref=' + encodeURIComponent(r.branch), null, r.base);
+  discardPendingEdits();
   state.rawMarkdown = glDecodeB64(f.content);
   r.lastCommitId = f.last_commit_id;
   state.dirty = false;
@@ -480,7 +532,8 @@ function cdSyncRows() {
 
 async function ensureMergeRequest(r, targetBranch) {
   const existing = await glApi('/projects/' + r.projectId + '/merge_requests?state=opened' +
-    '&source_branch=' + encodeURIComponent(r.branch) + '&target_branch=' + encodeURIComponent(targetBranch));
+    '&source_branch=' + encodeURIComponent(r.branch) + '&target_branch=' + encodeURIComponent(targetBranch),
+    null, r.base);
   if (existing.length) {
     showNotice('Committed — merge request !' + existing[0].iid + ' is already open', 'ok');
     return;
@@ -494,7 +547,7 @@ async function ensureMergeRequest(r, targetBranch) {
       title: 'Annotations: ' + r.path,
       remove_source_branch: true,
     }),
-  });
+  }, r.base);
   showNotice('Committed — merge request !' + mr.iid + ' opened', 'ok');
 }
 
@@ -515,11 +568,11 @@ async function cdCommit() {
   try {
     let exists = true;
     try {
-      await glApi('/projects/' + r.projectId + '/repository/branches/' + encodeURIComponent(target));
+      await glApi('/projects/' + r.projectId + '/repository/branches/' + encodeURIComponent(target), null, r.base);
     } catch (_) { exists = false; }
     if (!exists) {
       await glApi('/projects/' + r.projectId + '/repository/branches?branch=' + encodeURIComponent(target) +
-        '&ref=' + encodeURIComponent(src), { method: 'POST' });
+        '&ref=' + encodeURIComponent(src), { method: 'POST' }, r.base);
     }
     // The open file now lives on the annotation branch; MRs point back home.
     r.mrTarget = src;
@@ -558,11 +611,20 @@ function glSetStatus(msg, isError) {
 }
 
 function showGitLabDialog() {
-  $('#gl-token').value = glConfig().token;  // remembered; the base comes from the link
+  $('#gl-token').value = glConfig().token;  // last instance's token; the link may change it
   $('#gl-url').value = '';
   glSetStatus('');
   glDialog.classList.add('visible');
   $('#gl-url').focus();
+}
+
+// Pasting a link for an instance we already have a token for swaps it in, so
+// a second GitLab server doesn't silently reuse the first one's credentials.
+function glSyncTokenToUrl() {
+  const parsed = parseGitLabUrl($('#gl-url').value);
+  if (!parsed) return;
+  const known = glTokenFor(parsed.base);
+  if (known && known !== $('#gl-token').value) $('#gl-token').value = known;
 }
 function hideGitLabDialog() { glDialog.classList.remove('visible'); }
 
@@ -591,16 +653,16 @@ async function glOpenFromDialog() {
   glSaveConfig(parsed.base, $('#gl-token').value);
   glSetStatus('Opening ' + parsed.projectPath + '/' + parsed.path + '…');
   try {
-    const proj = await glApi('/projects/' + encodeURIComponent(parsed.projectPath));
+    const proj = await glApi('/projects/' + encodeURIComponent(parsed.projectPath), null, parsed.base);
     let branch = parsed.ref;
     try {
-      await glApi('/projects/' + proj.id + '/repository/branches/' + encodeURIComponent(branch));
+      await glApi('/projects/' + proj.id + '/repository/branches/' + encodeURIComponent(branch), null, parsed.base);
     } catch (_) {
       branch = proj.default_branch;
       showNotice('Link pins a commit — opened branch "' + branch + '" instead');
     }
     hideGitLabDialog();
-    await openGitLabFile({ projectId: proj.id, projectPath: proj.path_with_namespace, branch, path: parsed.path });
+    await openGitLabFile({ base: parsed.base, projectId: proj.id, projectPath: proj.path_with_namespace, branch, path: parsed.path });
   } catch (e) {
     glSetStatus('GitLab: ' + e.message, true);
   }
@@ -613,6 +675,7 @@ $('#btn-gitlab').addEventListener('click', (e) => {
 });
 $('#gl-close').addEventListener('click', hideGitLabDialog);
 $('#gl-open').addEventListener('click', glOpenFromDialog);
+$('#gl-url').addEventListener('input', glSyncTokenToUrl);
 $('#gl-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') glOpenFromDialog(); });
 $('#gl-token').addEventListener('keydown', (e) => { if (e.key === 'Enter') glOpenFromDialog(); });
 document.addEventListener('mousedown', (e) => {
@@ -1735,7 +1798,9 @@ renderedView.addEventListener('click', (e) => {
     const di = all.indexOf(mermaidEl);
     const mfences = Core.codeFenceRanges(state.rawMarkdown).filter(([s]) => {
       const nl = state.rawMarkdown.indexOf('\n', s);
-      return /^(`{3,}|~{3,})\s*mermaid\b/i.test(state.rawMarkdown.slice(s, nl === -1 ? undefined : nl));
+      // Fences may be indented up to 3 spaces, and codeFenceRanges now reports
+      // those too — keep this index-matched with the rendered .mermaid list.
+      return /^ {0,3}(`{3,}|~{3,})\s*mermaid\b/i.test(state.rawMarkdown.slice(s, nl === -1 ? undefined : nl));
     });
     const f = mfences[di];
     if (f) {
@@ -1865,6 +1930,7 @@ document.addEventListener('keydown', (e) => {
     if (commitDialog.classList.contains('visible')) { hideCommitDialog(); return; }
     if (glDialog.classList.contains('visible')) { hideGitLabDialog(); return; }
     if (recentMenu.classList.contains('visible')) { hideRecentMenu(); return; }
+    if (exportMenu.classList.contains('visible')) { exportMenu.classList.remove('visible'); return; }
     if (diagramMenu.classList.contains('visible')) { hideDiagramMenu(); return; }
     if (editPopup.classList.contains('visible')) { hideEditPopup(); return; }
     if (popup.classList.contains('visible')) { hideAnnotationPopup(); return; }

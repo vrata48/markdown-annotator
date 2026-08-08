@@ -16,7 +16,7 @@
         integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"
         integrity="sha384-wLhprpjsmjc/XYIcF+LpMxd8yS1gss6jhevOp6F6zhiIoFK6AmHtm4bGKtehTani" crossorigin="anonymous"></script>
-<script src="annotator-core.js?v=6"></script>
+<script src="annotator-core.js?v=7"></script>
 <!-- Mermaid ships as an ES module; load it, then expose it to the main (classic)
      script via window.mermaid and re-render once it's ready. Exact-version pin
      (ESM chain loads sibling modules, so SRI isn't practical here). -->
@@ -75,6 +75,15 @@
   --warn-border: #E5B5AE;
   --wash-border: #C4CFEA;
   --wash-hover: #D9E0F5;
+
+  /* Translucent derivatives of the accent / semantic colors. Kept as tokens
+     (not inline rgba) so the dark theme can re-tune them — a wash mixed for
+     white paper disappears on the dark sheet. */
+  --pen-underline: rgba(52,80,180,0.35);
+  --focus-ring: rgba(52,80,180,0.22);
+  --drag-wash: rgba(52,80,180,0.08);
+  --del-wash: rgba(188,65,54,0.09);
+  --ins-wash: rgba(46,125,81,0.10);
 }
 
 /* The desk after dark */
@@ -101,8 +110,17 @@
   --warn-border: #6E4038;
   --wash-border: #3D4C63;
   --wash-hover: #33405A;
+
+  /* Same washes, mixed for the dark sheet: the accent is light here, so the
+     tints need more alpha to stay visible. */
+  --pen-underline: rgba(147,168,240,0.45);
+  --focus-ring: rgba(147,168,240,0.30);
+  --drag-wash: rgba(147,168,240,0.12);
+  --del-wash: rgba(228,121,108,0.16);
+  --ins-wash: rgba(127,199,156,0.16);
 }
-/* Ultramarine reads dark on light but light on dark — button text flips with it. */
+/* Ultramarine reads dark on light but light on dark — text on any solid
+   accent or semantic fill (--pen / --ok / --danger) flips with it. */
 :root { --on-pen: #FFFFFF; }
 :root[data-theme="dark"] { --on-pen: #14181D; }
 :root[data-theme="dark"] #rendered-view .content { box-shadow: 0 2px 12px rgba(0,0,0,0.35); }
@@ -194,7 +212,7 @@ body.rail-collapsed #rail .rail-dot {
 }
 body.rail-collapsed #rail .rail-divider { width: 24px; }
 /* Narrow screens force the collapse — hide the toggle, the choice isn't yours there */
-@media (max-width: 768px) { #btn-rail-toggle { display: none !important; } }
+@media (max-width: 768px) { #rail #btn-rail-toggle { display: none; } }
 
 /* Toggle rows (View mode, Auto-reload) — settings-style on/off switches */
 #rail .mode-knob {
@@ -399,7 +417,7 @@ body.file-open #welcome { display: none; }
 body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-select: none; }
 .content img { max-width: 100%; border-radius: 4px; }
 .content hr { border: none; border-top: 1px solid var(--line); margin: 1.8em 0; }
-.content a { color: var(--pen); text-decoration: underline; text-decoration-color: rgba(53,80,123,0.35); text-underline-offset: 2px; }
+.content a { color: var(--pen); text-decoration: underline; text-decoration-color: var(--pen-underline); text-underline-offset: 2px; }
 .content a:hover { text-decoration-color: var(--pen); }
 
 /* Mermaid diagrams */
@@ -478,7 +496,7 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 .ann-delete {
   display: none;
   background: var(--danger);
-  color: white;
+  color: var(--on-pen);
   border: none;
   border-radius: 50%;
   width: 16px;
@@ -497,7 +515,7 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
   color: var(--red-pen);
   text-decoration: line-through;
   text-decoration-thickness: 1.5px;
-  background: rgba(179,55,43,0.07);
+  background: var(--del-wash);
   border-radius: 2px;
 }
 .ann-ins {
@@ -505,7 +523,7 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
   text-decoration: underline;
   text-decoration-style: solid;
   text-underline-offset: 3px;
-  background: rgba(62,122,78,0.08);
+  background: var(--ins-wash);
   border-radius: 2px;
 }
 .ann-edit-controls { display: none; white-space: nowrap; margin-left: 2px; vertical-align: middle; }
@@ -554,7 +572,7 @@ body.view-mode .ann-edit-controls { display: none !important; }
   line-height: 1.5;
 }
 
-#annotation-input:focus { border-color: var(--pen); box-shadow: 0 0 0 2px rgba(53,80,123,0.18); }
+#annotation-input:focus { border-color: var(--pen); box-shadow: 0 0 0 2px var(--focus-ring); }
 
 #annotation-popup .btn-row {
   display: flex;
@@ -670,7 +688,7 @@ body.dragging::after {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(53,80,123,0.08);
+  background: var(--drag-wash);
   border: 2px dashed var(--pen);
   border-radius: 12px;
   font-size: 18px;
@@ -705,7 +723,7 @@ body.dragging::after {
   outline: none;
   line-height: 1.5;
 }
-#edit-input:focus { border-color: var(--pen); box-shadow: 0 0 0 2px rgba(53,80,123,0.18); }
+#edit-input:focus { border-color: var(--pen); box-shadow: 0 0 0 2px var(--focus-ring); }
 #edit-popup .btn-row { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
 #edit-popup .btn-row button { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px; font-weight: 500; cursor: pointer; }
 
@@ -748,7 +766,7 @@ body.dragging::after {
   bottom: 20px;
   right: 20px;
   background: var(--ok);
-  color: white;
+  color: var(--on-pen);
   padding: 8px 16px;
   border-radius: 8px;
   font-size: 13px;
@@ -768,7 +786,7 @@ body.dragging::after {
   left: 50%;
   transform: translateX(-50%);
   background: var(--danger);
-  color: white;
+  color: var(--on-pen);
   padding: 9px 18px;
   border-radius: 8px;
   font-size: 13px;
@@ -1206,6 +1224,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=37"></script>
+<script src="app.js?v=38"></script>
 </body>
 </html>
