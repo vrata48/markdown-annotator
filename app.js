@@ -8,6 +8,7 @@ const state = {
   fileOpen: false,
   fileHandle: null,   // local file (File System Access API), or
   remote: null,       // GitLab file: { base, projectId, projectPath, branch, path, lastCommitId }
+  diskMoved: false,   // the on-disk/remote version changed under us (survives banner dismissal)
   mode: 'annotate',   // 'annotate' | 'view'
 };
 
@@ -55,6 +56,7 @@ const FILE_TYPES = [{
 async function openHandle(handle, opts) {
   const silent = opts && opts.silent;
   if (state.dirty && !confirm('You have unsaved changes. Open another file anyway?')) return;
+  cancelAutoSave();  // the user just chose to discard — a pending timer must not save
   try {
     // Read-only here: asking for readwrite at open time makes Chrome show a
     // confusing "Save changes to file?" prompt. Write access is requested on
@@ -71,6 +73,7 @@ async function openHandle(handle, opts) {
     state.fileName = file.name;
     state.displayPath = file.name;  // real paths are hidden from web pages
     state.dirty = false;
+    state.diskMoved = false;
     state.fileOpen = true;
     state.lastModified = file.lastModified;
     clearUndo();
@@ -119,6 +122,7 @@ async function pickFile() {
 }
 
 async function reloadFromDisk() {
+  cancelAutoSave();  // a pending save must not race the reload it would undo
   try {
     if (state.remote) {
       showProgress('Reloading from GitLab…');
@@ -130,6 +134,7 @@ async function reloadFromDisk() {
     const file = await state.fileHandle.getFile();
     state.rawMarkdown = await file.text();
     state.dirty = false;
+    state.diskMoved = false;
     state.lastModified = file.lastModified;
     clearUndo();
     hideDiskBanner();
@@ -185,6 +190,9 @@ async function checkDiskChange() {
 }
 
 function showDiskBanner(conflict) {
+  // Record the conflict in state, not just the DOM: dismissing the banner must
+  // not re-arm auto-save — only an explicit save or reload resolves it.
+  state.diskMoved = true;
   const where = state.remote ? 'on GitLab' : 'on disk';
   $('#disk-banner-msg').textContent = conflict
     ? 'This file changed ' + where + ' and you have unsaved changes. Saving will overwrite that version.'
@@ -195,9 +203,15 @@ function showDiskBanner(conflict) {
 function hideDiskBanner() { $('#disk-banner').style.display = 'none'; }
 
 // ── Settings ────────────────────────────────────────────────
-function getAutoReload() {
-  try { return localStorage.getItem('auto-reload') === '1'; } catch (_) { return false; }
+// One localStorage boolean protocol for every toggle (storage can be unavailable).
+function getFlag(key) {
+  try { return localStorage.getItem(key) === '1'; } catch (_) { return false; }
 }
+function setFlag(key, on) {
+  try { localStorage.setItem(key, on ? '1' : '0'); } catch (_) {}
+}
+
+function getAutoReload() { return getFlag('auto-reload'); }
 function refreshAutoReloadButton() {
   const on = getAutoReload();
   const btn = $('#btn-autoreload');
@@ -205,44 +219,46 @@ function refreshAutoReloadButton() {
   btn.classList.toggle('on', on);
 }
 $('#btn-autoreload').addEventListener('click', () => {
-  try { localStorage.setItem('auto-reload', getAutoReload() ? '0' : '1'); } catch (_) {}
+  setFlag('auto-reload', !getAutoReload());
   refreshAutoReloadButton();
   updateToolbar();
 });
 refreshAutoReloadButton();
 
 // ── Auto-save (local files only — a remote auto-save would spam commits) ──
-function getAutoSave() {
-  try { return localStorage.getItem('auto-save') === '1'; } catch (_) { return false; }
-}
+function getAutoSave() { return getFlag('auto-save'); }
+// The one definition of "auto-save covers the open document" — the scheduler,
+// the timer, saveFile and the toolbar must all agree on it.
+function autoSaveActive() { return getAutoSave() && !!state.fileHandle && !state.remote; }
 function refreshAutoSaveButton() {
   const on = getAutoSave();
   const btn = $('#btn-autosave');
-  btn.title = 'Auto-save local files shortly after each change: ' + (on ? 'on' : 'off');
-  btn.classList.toggle('on', on);
+  // Reflect the *effective* state: the preference can be on while a GitLab
+  // file keeps auto-save inert — showing the knob "on" there would be a lie.
+  btn.title = on && state.remote
+    ? 'Auto-save is off for GitLab files — every commit stays deliberate'
+    : 'Auto-save local files shortly after each change: ' + (on ? 'on' : 'off');
+  btn.classList.toggle('on', on && !state.remote);
 }
 $('#btn-autosave').addEventListener('click', () => {
-  try { localStorage.setItem('auto-save', getAutoSave() ? '0' : '1'); } catch (_) {}
+  setFlag('auto-save', !getAutoSave());
   refreshAutoSaveButton();
   updateToolbar();
-  scheduleAutoSave();  // just turned on with unsaved changes → save them
+  scheduleAutoSave();  // turned on with unsaved changes → save them; off → cancels the pending save
 });
 refreshAutoSaveButton();
 
 let autoSaveTimer = null;
+function cancelAutoSave() { clearTimeout(autoSaveTimer); autoSaveTimer = null; }
 function scheduleAutoSave() {
-  if (!getAutoSave() || !state.fileHandle || state.remote) return;
-  clearTimeout(autoSaveTimer);
-  autoSaveTimer = setTimeout(async () => {
-    if (!state.dirty || !getAutoSave() || !state.fileHandle || state.remote) return;
-    // A conflict banner means the disk version moved — never overwrite it silently.
-    if ($('#disk-banner').style.display === 'flex') return;
-    // The browser's permission prompt needs a user gesture a timer doesn't have;
-    // until the first manual save grants write access, stay dirty quietly.
-    try {
-      if (await state.fileHandle.queryPermission({ mode: 'readwrite' }) !== 'granted') return;
-    } catch (_) { return; }
-    saveFile();
+  cancelAutoSave();
+  if (!autoSaveActive()) return;
+  autoSaveTimer = setTimeout(() => {
+    if (!state.dirty || !autoSaveActive()) return;
+    // The disk version moved (conflict banner, even if dismissed since) —
+    // never overwrite it silently; a manual save or reload resolves it.
+    if (state.diskMoved) return;
+    saveFile({ auto: true });
   }, 1500);
 }
 
@@ -363,6 +379,7 @@ function glDecodeB64(b64) {
 async function openGitLabFile(desc, opts) {
   const silent = opts && opts.silent;
   if (state.dirty && !confirm('You have unsaved changes. Open another file anyway?')) return;
+  cancelAutoSave();  // the user just chose to discard — a pending timer must not save
   showProgress('Opening ' + desc.path + ' from GitLab…');
   try {
     const f = await glApi('/projects/' + desc.projectId + '/repository/files/' +
@@ -380,6 +397,7 @@ async function openGitLabFile(desc, opts) {
     state.fileName = desc.path.split('/').pop();
     state.displayPath = desc.projectPath + '/' + desc.path + ' @ ' + desc.branch;
     state.dirty = false;
+    state.diskMoved = false;
     state.fileOpen = true;
     clearUndo();
     render();
@@ -427,6 +445,7 @@ async function reloadFromGitLab() {
   state.rawMarkdown = glDecodeB64(f.content);
   r.lastCommitId = f.last_commit_id;
   state.dirty = false;
+  state.diskMoved = false;
   clearUndo();
   hideDiskBanner();
   render();
@@ -740,34 +759,55 @@ async function refreshWelcomeRecent() {
 }
 
 let savePending = false;
-async function saveFile() {
-  if (!state.fileOpen || savePending) return;
+async function saveFile(opts) {
+  const auto = !!(opts && opts.auto);  // timer-fired: no gestures, no modal dialogs
+  if (!state.fileOpen) return;
+  if (savePending) { scheduleAutoSave(); return; }  // in flight — retry shortly if auto-save is on
   if (!state.fileHandle && !state.remote) return;
+  if (auto && (!autoSaveActive() || state.diskMoved)) return;
   // First save of a remote file: ask where the commit should go.
   if (state.remote && !state.remote.saveConfigured) { showCommitDialog(); return; }
   savePending = true;
   const content = state.rawMarkdown;
+  // Snapshot the handle: an open() completing during our awaits must not
+  // retarget this write at the newly opened file.
+  const handle = state.fileHandle;
   try {
     if (state.remote) {
       showProgress('Committing to GitLab…');
       await glCommit(content);  // re-baselines lastCommitId itself
       hideProgress();
     } else {
-      if (await state.fileHandle.queryPermission({ mode: 'readwrite' }) !== 'granted' &&
-          await state.fileHandle.requestPermission({ mode: 'readwrite' }) !== 'granted') {
+      if (auto) {
+        // A timer has no user gesture for the permission prompt: only proceed
+        // once a manual save has granted write access; until then stay dirty quietly.
+        if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted') return;
+        // The watcher only polls every 3s (and not while hidden) — catch an
+        // external write that landed in the gap instead of clobbering it.
+        const onDisk = await handle.getFile();
+        if (onDisk.lastModified > state.lastModified) {
+          state.lastModified = onDisk.lastModified;
+          showDiskBanner(true);
+          return;
+        }
+      } else if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted' &&
+          await handle.requestPermission({ mode: 'readwrite' }) !== 'granted') {
         alert('Write access was not granted — the file was not saved.');
         return;
       }
-      const writable = await state.fileHandle.createWritable();
+      const writable = await handle.createWritable();
       await writable.write(content);
       await writable.close();
       // Re-baseline the watcher so our own write isn't reported as external.
-      try { state.lastModified = (await state.fileHandle.getFile()).lastModified; } catch (_) {}
+      try { state.lastModified = (await handle.getFile()).lastModified; } catch (_) {}
     }
+    state.diskMoved = false;  // a completed save is the deliberate overwrite
     // Only clear dirty if nothing changed while the write was in flight.
     if (state.rawMarkdown === content) {
       state.dirty = false;
       updateToolbar();
+    } else {
+      scheduleAutoSave();  // more edits arrived mid-write — pick them up too
     }
     flashSaved();
     hideDiskBanner();
@@ -776,6 +816,8 @@ async function saveFile() {
     // GitLab rejects the commit when the file moved under us (optimistic lock).
     if (state.remote && e.status === 400 && /changed/i.test(e.message)) {
       showDiskBanner(true);
+    } else if (auto) {
+      showNotice('Auto-save failed: ' + e.message);  // a timer must not raise modal alerts
     } else {
       alert('Save failed: ' + e.message);
     }
@@ -794,12 +836,14 @@ function closeFile() {
   if (!state.fileOpen) return;
   if (state.dirty && !confirm('You have unsaved changes. Close anyway?')) return;
   if (watchTimer) { clearInterval(watchTimer); watchTimer = null; }
+  cancelAutoSave();
   state.rawMarkdown = '';
   state.fileName = '';
   state.displayPath = '';
   state.fileHandle = null;
   state.remote = null;
   state.dirty = false;
+  state.diskMoved = false;
   state.fileOpen = false;
   clearUndo();
   hideAnnotationPopup();
@@ -1043,12 +1087,13 @@ function updateToolbar() {
   // With auto-save on (local files), saving is automatic — the button only
   // lights up while something is unsaved (covers the first permission-granting
   // save, and the case where auto-save is quietly waiting for permission).
-  $('#btn-save').disabled = noFile || (getAutoSave() && !state.remote && !state.dirty);
+  $('#btn-save').disabled = noFile || (autoSaveActive() && !state.dirty);
   // With auto-reload on and nothing unsaved, the watcher already covers manual
   // reloads; the button's only remaining job is "discard my changes".
   $('#btn-refresh').disabled = noFile || (getAutoReload() && !state.dirty);
   $('#btn-autoreload').disabled = noFile;
   $('#btn-autosave').disabled = noFile || !!state.remote;  // local files only
+  refreshAutoSaveButton();  // its knob/title reflect the open file's type
   $('#btn-export').disabled = noFile;
   $('#btn-mode-toggle').disabled = noFile;
 }
@@ -1628,9 +1673,7 @@ $('#btn-theme').addEventListener('click', () => {
 
 // ── Rail collapse (manual toggle; narrow screens force it) ─
 const railMq = window.matchMedia('(max-width: 768px)');
-function getRailPref() {
-  try { return localStorage.getItem('rail-collapsed') === '1'; } catch (_) { return false; }
-}
+function getRailPref() { return getFlag('rail-collapsed'); }
 function applyRailCollapsed() {
   const collapsed = railMq.matches || getRailPref();
   document.body.classList.toggle('rail-collapsed', collapsed);
@@ -1640,7 +1683,7 @@ function applyRailCollapsed() {
 }
 railMq.addEventListener('change', applyRailCollapsed);
 $('#btn-rail-toggle').addEventListener('click', () => {
-  try { localStorage.setItem('rail-collapsed', getRailPref() ? '0' : '1'); } catch (_) {}
+  setFlag('rail-collapsed', !getRailPref());
   applyRailCollapsed();
 });
 applyRailCollapsed();
@@ -1840,7 +1883,9 @@ document.addEventListener('keydown', (e) => {
   }
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault();
-    saveFile();
+    // Mirror the Save button: with auto-save covering a clean file, a forced
+    // rewrite would only bump the mtime and wake external watchers.
+    if (!(autoSaveActive() && !state.dirty)) saveFile();
   }
 });
 
@@ -1898,7 +1943,9 @@ window.addEventListener('drop', (e) => {
 });
 
 // ── Init ───────────────────────────────────────────────────
-$('#btn-disk-reload').addEventListener('click', () => { state.dirty = false; reloadFromDisk(); });
+// No dirty pre-clear here: reloadFromDisk clears it on success, and a failed
+// reload must leave the edits marked unsaved (beforeunload, Save button).
+$('#btn-disk-reload').addEventListener('click', () => { reloadFromDisk(); });
 $('#btn-disk-dismiss').addEventListener('click', hideDiskBanner);
 $('#btn-folder-close').addEventListener('click', () => {
   fileSidebar.classList.remove('visible');
