@@ -117,11 +117,39 @@ test('annotations inside code fences stay literal', () => {
   assert.equal(placeholders[0].comment, 'real');
 });
 
+test('code-fence literals cannot join or mutate a visible annotation group', () => {
+  const src = '```\n{== literal example ==}\n```\n\n{== visible ==}{>> real comment <<}';
+  const items = Core.scanAnnotations(src);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].kind, 'pair');
+  assert.equal(Core.deleteGroup(src, items[0].group), '```\n{== literal example ==}\n```\n\nvisible');
+});
+
+test('inline and indented code keep CriticMarkup literal', () => {
+  const inline = 'Inline `{== literal ==}` then {== visible ==}{>> real <<}';
+  assert.equal(Core.preprocessCriticMarkup(inline).count, 1);
+  assert.equal(Core.scanAnnotations(inline).length, 1);
+  const indented = '    {>> literal code example <<}\n\n{>> real <<}';
+  assert.equal(Core.preprocessCriticMarkup(indented).count, 1);
+  assert.equal(Core.stripAll(indented), '    {>> literal code example <<}\n\n');
+});
+
 test('preprocess carries kind, group and text2', () => {
   const { placeholders } = Core.preprocessCriticMarkup('{~~a~>b~~} {==x==}{>> c <<}');
   assert.equal(placeholders[0].kind, 'sub');
   assert.equal(placeholders[0].text2, 'b');
   assert.equal(placeholders[1].kind, 'pair');
+});
+
+test('preprocess: placeholder cannot collide with literal document text', () => {
+  const literal = '​ANN0​';
+  const src = literal + ' {== alpha ==}{>> note <<}';
+  const { placeholders } = Core.preprocessCriticMarkup(src);
+  assert.notEqual(placeholders[0].placeholder, literal);
+  const md = { render: (s) => s, renderInline: (s) => s };
+  const html = Core.renderAnnotated(md, src);
+  assert.equal((html.match(/class="ann-wrap/g) || []).length, 1);
+  assert.ok(html.includes(literal));
 });
 
 // ── isStructurePreserved (guards the whole annotate flow) ──
@@ -178,6 +206,16 @@ test('safeComment: breaks a literal <<} in the comment text', () => {
   assert.equal(Core.safeComment(null), '');
 });
 
+test('scan: malformed opener flood stays fast and produces no annotations', () => {
+  const src = '{=='.repeat(20000);
+  const started = Date.now();
+  assert.deepEqual(Core.scanAnnotations(src), []);
+  // The old regex scanner takes well over a second here. This loose limit keeps
+  // the regression test reliable on slower CI workers while catching a return
+  // to quadratic behaviour.
+  assert.ok(Date.now() - started < 500, 'malformed CriticMarkup scan was too slow');
+});
+
 test('applyInserts: comment containing <<} stays one annotation', () => {
   const out = Core.applyInserts('one two three', [{ type: 'pair', start: 4, end: 7 }], 'close with <<} here');
   const items = Core.scanAnnotations(out);
@@ -210,4 +248,39 @@ test('preprocessCriticMarkup: annotations inside an indented fence stay literal'
   const src = '# H\n\n  ```\n  {>> not an annotation <<}\n  ```\n\n{>> real one <<}\n';
   const { count } = Core.preprocessCriticMarkup(src);
   assert.equal(count, 1);
+});
+
+test('codeFenceRanges: longer closing fence and unclosed fence stay literal', () => {
+  const longer = '```js\n{>> literal <<}\n````\n\n{>> real <<}';
+  assert.equal(Core.preprocessCriticMarkup(longer).count, 1);
+  const unclosed = '```js\n{>> literal through EOF <<}';
+  assert.equal(Core.preprocessCriticMarkup(unclosed).count, 0);
+});
+
+test('codeFenceRanges: nested-list and blockquote fences stay literal', () => {
+  const nestedList = '- outer\n  - inner\n    ```js\n    {>> literal <<}\n    ```\n\n{>> real <<}';
+  assert.equal(Core.preprocessCriticMarkup(nestedList).count, 1);
+  const quote = '> ```js\n> {>> literal <<}\n> ```\n\n{>> real <<}';
+  assert.equal(Core.preprocessCriticMarkup(quote).count, 1);
+});
+
+test('analyzeTarget: Mermaid content becomes a block comment, not live markup', () => {
+  const src = '```mermaid\nflowchart LR\n  A --> B\n```';
+  const start = src.indexOf('flowchart');
+  const result = Core.analyzeTarget(src, { type: 'range', start, end: start + 'flowchart'.length });
+  assert.equal(result.supported, true);
+  assert.equal(result.kind, 'block');
+  assert.equal(Core.applyInserts(src, result.inserts, 'Review diagram'), '{>> Review diagram <<}\n' + src);
+});
+
+test('analyzeTarget: splits a multi-paragraph CJK selection', () => {
+  const md = {
+    render: (s) => s.split(/\n\n/).map(p => '<p>' + p + '</p>').join(''),
+    renderInline: (s) => s,
+  };
+  const src = '第一段文字。\n\n第二段文字。';
+  const result = Core.analyzeTarget(src, { type: 'range', start: 0, end: src.length }, md);
+  assert.equal(result.supported, true);
+  assert.equal(result.kind, 'split');
+  assert.equal(result.inserts.length, 2);
 });

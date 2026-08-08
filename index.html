@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https: http:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https: http:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
 <title>Markdown Annotator</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
@@ -16,20 +17,10 @@
         integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"
         integrity="sha384-wLhprpjsmjc/XYIcF+LpMxd8yS1gss6jhevOp6F6zhiIoFK6AmHtm4bGKtehTani" crossorigin="anonymous"></script>
-<script src="annotator-core.js?v=7"></script>
-<!-- Mermaid ships as an ES module; load it, then expose it to the main (classic)
-     script via window.mermaid and re-render once it's ready. Exact-version pin
-     (ESM chain loads sibling modules, so SRI isn't practical here). -->
-<script type="module">
-  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.esm.min.mjs';
-  const dark = document.documentElement.dataset.theme === 'dark';
-  mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default' });
-  window.mermaid = mermaid;
-  // The main script (end of <body>) has already run by the time this deferred
-  // module executes, so renderMermaid is defined. Re-render any file opened at
-  // startup (e.g. via CLI arg) that rendered before Mermaid finished loading.
-  if (typeof window.renderMermaid === 'function') window.renderMermaid();
-</script>
+<script src="annotator-core.js?v=9"></script>
+<!-- Mermaid ships as an ES module. Keep the loader external so the CSP can
+     block inline scripts and event handlers in untrusted Markdown. -->
+<script type="module" src="mermaid-init.js?v=1"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1224,6 +1215,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=38"></script>
+<script src="app.js?v=41"></script>
 </body>
 </html>

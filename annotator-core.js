@@ -36,22 +36,69 @@
   // standalone highlights binds to the following paired comment (they form one
   // logical annotation); a lone pair or point is its own group.
   function scanAnnotations(src) {
-    const re = new RegExp(CM_ANY.source, 'g');
     const items = [];
-    let m, gid = 0, pending = [];
-    while ((m = re.exec(src)) !== null) {
-      let it;
-      if (m[1] !== undefined) it = { kind: 'pair', text: m[1], comment: m[2] };
-      else if (m[3] !== undefined) it = { kind: 'highlight', text: m[3], comment: '' };
-      else if (m[4] !== undefined) it = { kind: 'point', text: '', comment: m[4] };
-      else if (m[5] !== undefined) it = { kind: 'del', text: m[5], comment: '' };
-      else if (m[6] !== undefined) it = { kind: 'ins', text: m[6], comment: '' };
-      else it = { kind: 'sub', text: m[7], text2: m[8], comment: '' };
-      it.mStart = m.index; it.mEnd = m.index + m[0].length;
+    let gid = 0, pending = [], pos = 0, fenceIndex = 0;
+    // CriticMarkup-looking text inside a fence is source code/documentation,
+    // not an annotation. Excluding it here (not only during rendering) prevents
+    // a literal standalone highlight from binding to a real pair after the
+    // fence and being rewritten when that visible annotation is deleted.
+    const fences = protectedCodeRanges(src);
+    // Never use CM_ANY to scan untrusted documents. With a long run of an
+    // unclosed opener (for example `{==` repeated thousands of times), the
+    // tempered alternatives re-scan the rest of the string at every opener.
+    // This single-pass parser keeps the same CriticMarkup grammar without the
+    // quadratic worst case that could freeze the browser on a remote document.
+    const last = {
+      highlight: src.lastIndexOf('==}'),
+      point: src.lastIndexOf('<<}'),
+      del: src.lastIndexOf('--}'),
+      ins: src.lastIndexOf('++}'),
+      sub: src.lastIndexOf('~~}'),
+      arrow: src.lastIndexOf('~>'),
+    };
+    while (pos < src.length) {
+      const start = src.indexOf('{', pos);
+      if (start < 0 || start + 2 >= src.length) break;
+      while (fenceIndex < fences.length && start >= fences[fenceIndex][1]) fenceIndex++;
+      const fence = fences[fenceIndex];
+      if (fence && start >= fence[0]) { pos = fence[1]; continue; }
+      let it = null, close, next;
+      if (src.startsWith('{==', start) && last.highlight >= start + 3) {
+        close = src.indexOf('==}', start + 3);
+        if (close >= 0) {
+          const text = src.slice(start + 3, close).trim();
+          next = close + 3;
+          if (src.startsWith('{>>', next) && last.point >= next + 3) {
+            const commentClose = src.indexOf('<<}', next + 3);
+            if (commentClose >= 0) {
+              it = { kind: 'pair', text, comment: src.slice(next + 3, commentClose).trim(), mStart: start, mEnd: commentClose + 3 };
+            }
+          }
+          if (!it) it = { kind: 'highlight', text, comment: '', mStart: start, mEnd: close + 3 };
+        }
+      } else if (src.startsWith('{>>', start) && last.point >= start + 3) {
+        close = src.indexOf('<<}', start + 3);
+        if (close >= 0) it = { kind: 'point', text: '', comment: src.slice(start + 3, close).trim(), mStart: start, mEnd: close + 3 };
+      } else if (src.startsWith('{--', start) && last.del >= start + 3) {
+        close = src.indexOf('--}', start + 3);
+        if (close >= 0) it = { kind: 'del', text: src.slice(start + 3, close), comment: '', mStart: start, mEnd: close + 3 };
+      } else if (src.startsWith('{++', start) && last.ins >= start + 3) {
+        close = src.indexOf('++}', start + 3);
+        if (close >= 0) it = { kind: 'ins', text: src.slice(start + 3, close), comment: '', mStart: start, mEnd: close + 3 };
+      } else if (src.startsWith('{~~', start) && last.sub >= start + 3 && last.arrow >= start + 3) {
+        // The old side of a substitution cannot contain either delimiter. Its
+        // first `~~}` therefore wins: a later `~>` must not resurrect an
+        // otherwise malformed substitution.
+        close = src.indexOf('~~}', start + 3);
+        const arrow = src.indexOf('~>', start + 3);
+        if (close >= 0 && arrow >= 0 && arrow < close) it = { kind: 'sub', text: src.slice(start + 3, arrow), text2: src.slice(arrow + 2, close), comment: '', mStart: start, mEnd: close + 3 };
+      }
+      if (!it) { pos = start + 1; continue; }
       if (it.kind === 'highlight') { it.group = -1; pending.push(it); }
       else if (it.kind === 'pair') { const g = gid++; pending.forEach(p => p.group = g); pending = []; it.group = g; }
       else { pending.forEach(p => p.group = gid++); pending = []; it.group = gid++; }
       items.push(it);
+      pos = it.mEnd;
     }
     pending.forEach(p => { if (p.group < 0) p.group = gid++; });
     return items;
@@ -182,12 +229,82 @@
   // annotations inside such a fence "live" and shifted the mermaid fence index.
   function codeFenceRanges(src) {
     const ranges = [];
-    const fenceRegex = /^ {0,3}(`{3,}|~{3,})[^\r\n]*\r?\n[\s\S]*?\r?\n[ \t]*\1[ \t]*(?=\r?\n|$)/gm;
-    let fm;
-    while ((fm = fenceRegex.exec(src)) !== null) {
-      ranges.push([fm.index, fm.index + fm[0].length]);
+    let pos = 0;
+    while (pos < src.length) {
+      const lineEnd = src.indexOf('\n', pos);
+      const end = lineEnd < 0 ? src.length : lineEnd;
+      const rawLine = src.slice(pos, end);
+      const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+      // Allow a fence inside list/blockquote indentation as well as a top-level
+      // fence. A false positive merely uses a safe block-comment fallback;
+      // missing a real fence lets a literal CriticMarkup example mutate source.
+      const opening = line.match(/^(?:[ \t]*>\s*)*[ \t]*(`{3,}|~{3,})[^\r\n]*$/);
+      if (!opening) {
+        pos = lineEnd < 0 ? src.length : lineEnd + 1;
+        continue;
+      }
+      const fence = opening[1];
+      const char = fence[0] === '`' ? '`' : '~';
+      const closing = new RegExp('^(?:[ \\t]*>\\s*)*[ \\t]*' + (char === '`' ? '`' : '~') + '{' + fence.length + ',}[ \\t]*$');
+      let scan = lineEnd < 0 ? src.length : lineEnd + 1;
+      let closed = false;
+      while (scan < src.length) {
+        const closeLineEnd = src.indexOf('\n', scan);
+        const closeEnd = closeLineEnd < 0 ? src.length : closeLineEnd;
+        const closeRaw = src.slice(scan, closeEnd);
+        const closeLine = closeRaw.endsWith('\r') ? closeRaw.slice(0, -1) : closeRaw;
+        if (closing.test(closeLine)) {
+          ranges.push([pos, closeEnd]);
+          pos = closeLineEnd < 0 ? src.length : closeLineEnd + 1;
+          closed = true;
+          break;
+        }
+        scan = closeLineEnd < 0 ? src.length : closeLineEnd + 1;
+      }
+      // CommonMark treats an unclosed fence as code through EOF. Preserve its
+      // literal CriticMarkup too, rather than allowing an annotation mutation.
+      if (!closed) {
+        ranges.push([pos, src.length]);
+        break;
+      }
     }
     return ranges;
+  }
+
+  // Inline and indented code are literal too. Keep these separate from
+  // codeFenceRanges: annotation targeting uses fenced blocks as a meaningful
+  // whole-block target, while these ranges only prevent existing literal
+  // CriticMarkup examples from being parsed or rewritten.
+  function protectedCodeRanges(src) {
+    const ranges = codeFenceRanges(src);
+    const inline = /(`+)([\s\S]*?)\1(?!`)/g;
+    let m;
+    while ((m = inline.exec(src)) !== null) {
+      if (!inAnyRange(m.index, ranges)) ranges.push([m.index, m.index + m[0].length]);
+    }
+    let pos = 0;
+    while (pos < src.length) {
+      const lineEnd = src.indexOf('\n', pos);
+      const end = lineEnd < 0 ? src.length : lineEnd;
+      const line = src.slice(pos, end).replace(/\r$/, '');
+      if (!/^(?: {4}|\t)/.test(line) || inAnyRange(pos, ranges)) {
+        pos = lineEnd < 0 ? src.length : lineEnd + 1;
+        continue;
+      }
+      const start = pos;
+      let rangeEnd = end;
+      pos = lineEnd < 0 ? src.length : lineEnd + 1;
+      while (pos < src.length) {
+        const nextEndAt = src.indexOf('\n', pos);
+        const nextEnd = nextEndAt < 0 ? src.length : nextEndAt;
+        const nextLine = src.slice(pos, nextEnd).replace(/\r$/, '');
+        if (nextLine && !/^(?: {4}|\t)/.test(nextLine)) break;
+        rangeEnd = nextEnd;
+        pos = nextEndAt < 0 ? src.length : nextEndAt + 1;
+      }
+      ranges.push([start, rangeEnd]);
+    }
+    return ranges.sort((a, b) => a[0] - b[0]);
   }
 
   function inAnyRange(pos, ranges) {
@@ -201,12 +318,17 @@
   // the rendered HTML (for the app) and the plain text (for structural compare).
   function preprocessCriticMarkup(src) {
     const placeholders = [];
-    const fences = codeFenceRanges(src);
+    const fences = protectedCodeRanges(src);
     const items = scanAnnotations(src);
-    let out = '', last = 0, i = 0;
+    let out = '', last = 0, i = 0, nonce = 0;
     for (const it of items) {
       if (inAnyRange(it.mStart, fences)) continue; // leave literal inside code fences
-      const placeholder = '​ANN' + i + '​';
+      // Fixed tokens can collide with literal document text, which would make
+      // the later split/join render one annotation in multiple locations.
+      // Include a nonce and guarantee the token is absent from the source.
+      let placeholder;
+      do { placeholder = '​ANN' + i + '_' + nonce++ + '​'; }
+      while (src.includes(placeholder));
       placeholders.push({ placeholder, i, kind: it.kind, text: it.text, text2: it.text2, comment: (it.comment || '').trim(), group: it.group });
       out += src.slice(last, it.mStart) + placeholder;
       last = it.mEnd;
@@ -372,7 +494,7 @@
       const hr = /^\s*([-*_])(\s*\1){2,}\s*$/.test(piece);
       if (interiorFence || blank || hr) { flush(); continue; }
       const t = trimToContent(src, ps, pe);
-      if (!t || t[1] <= t[0] || !/[A-Za-z0-9]/.test(src.slice(t[0], t[1]))) { flush(); continue; }
+      if (!t || t[1] <= t[0] || !/[\p{L}\p{N}\p{M}]/u.test(src.slice(t[0], t[1]))) { flush(); continue; }
       const ownBlock = /^\s*(#{1,6}\s|[-*+]\s|\d+\.\s|>)/.test(piece); // heading/list/quote
       if (ownBlock) { flush(); segs.push(t); continue; }
       if (cur) cur[1] = t[1]; else cur = [t[0], t[1]]; // merge paragraph line
@@ -387,7 +509,7 @@
   // that cross inline formatting or block boundaries.
   function splitRangeIntoWords(src, start, end, fences) {
     const inserts = [];
-    const re = /[A-Za-z0-9][A-Za-z0-9''\-]*/g;
+    const re = /[\p{L}\p{N}][\p{L}\p{N}\p{M}'’\-]*/gu;
     const sub = src.slice(start, end);
     let m;
     while ((m = re.exec(sub)) !== null) {

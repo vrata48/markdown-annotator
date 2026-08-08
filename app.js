@@ -28,7 +28,11 @@ const saveStatus = $('#save-status');
 
 // ── Markdown-it setup ──────────────────────────────────────
 const md = markdownit({
-  html: true,
+  // Markdown comes from arbitrary local files and GitLab repositories. Keep
+  // raw HTML inert: rendered content is inserted with innerHTML, and allowing
+  // tags here would let a document execute event-handler JavaScript in the
+  // app's origin (where GitLab tokens are stored).
+  html: false,
   linkify: true,
   typographer: true,
   highlight(str, lang) {
@@ -1774,6 +1778,12 @@ renderedView.addEventListener('mouseup', (e) => {
     if (!state.fileOpen) return;
     const selCtx = getSelectionContext();
     if (!selCtx) return;
+    const selection = window.getSelection();
+    const selectedRange = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+    if (selectedRange && [...contentEl.querySelectorAll('.ann-wrap')].some(el => selectedRange.intersectsNode(el))) {
+      showNotice('Edit an existing annotation instead of annotating inside it.');
+      return;
+    }
     const range = mapSelectionRange(selCtx);
     if (!range) { showNotice('Couldn’t locate that selection in the source — try a more unique passage.'); return; }
     const r = Core.analyzeTarget(state.rawMarkdown, { type: 'range', start: range.start, end: range.end }, md);
@@ -1800,7 +1810,7 @@ renderedView.addEventListener('click', (e) => {
       const nl = state.rawMarkdown.indexOf('\n', s);
       // Fences may be indented up to 3 spaces, and codeFenceRanges now reports
       // those too — keep this index-matched with the rendered .mermaid list.
-      return /^ {0,3}(`{3,}|~{3,})\s*mermaid\b/i.test(state.rawMarkdown.slice(s, nl === -1 ? undefined : nl));
+      return /^(?:[ \t]*>\s*)*[ \t]*(`{3,}|~{3,})\s*mermaid\b/i.test(state.rawMarkdown.slice(s, nl === -1 ? undefined : nl));
     });
     const f = mfences[di];
     if (f) {
