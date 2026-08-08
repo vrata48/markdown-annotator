@@ -1052,6 +1052,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
     <g id="i-sun"><circle cx="9" cy="9" r="3.4"/><path d="M9 1.8v1.9M9 14.3v1.9M1.8 9h1.9M14.3 9h1.9M3.9 3.9l1.35 1.35M12.75 12.75l1.35 1.35M14.1 3.9l-1.35 1.35M5.25 12.75 3.9 14.1"/></g>
     <g id="i-github"><path d="M11.8 15.5v-2.2c0-.7-.2-1.2-.5-1.5 1.7-.2 3.4-.9 3.4-3.7 0-.8-.3-1.5-.8-2 .1-.2.4-1-.1-2 0 0-.6-.2-2.1.8a7 7 0 0 0-3.6 0c-1.5-1-2.1-.8-2.1-.8-.5 1-.2 1.8-.1 2-.5.5-.8 1.2-.8 2 0 2.8 1.7 3.5 3.4 3.7-.2.2-.4.6-.5 1.1-.4.2-1.5.5-2.2-.6-.4-.7-1.1-.8-1.1-.8"/><path d="M6.7 14.2c-.1.5-.1 1-.1 1.3"/></g>
     <g id="i-tanuki"><path d="M9 15.6 2.6 9l1.7-5.9 2.3 4.6h4.8l2.3-4.6L15.4 9z"/></g>
+    <g id="i-zap"><path d="M9.8 2.2 3.9 10h3.7l-1.4 5.8L12.1 8H8.4z"/></g>
     <g id="i-chev-l"><path d="M11 4 6 9l5 5"/></g>
     <g id="i-chev-r"><path d="M7 4l5 5-5 5"/></g>
   </defs>
@@ -1066,6 +1067,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button id="btn-gitlab" title="Open a markdown file from a GitLab repository"><svg viewBox="0 0 18 18"><use href="#i-tanuki"/></svg><span>Open GitLab</span></button>
   <button id="btn-recent" title="Recently opened files"><svg viewBox="0 0 18 18"><use href="#i-history"/></svg><span>Recent</span></button>
   <button id="btn-save" title="Save (Ctrl+S)"><svg viewBox="0 0 18 18"><use href="#i-save"/></svg><span>Save</span><span class="rail-dot"></span></button>
+  <button id="btn-autosave" title="Auto-save local files shortly after each change"><svg viewBox="0 0 18 18"><use href="#i-zap"/></svg><span>Auto-save</span><span class="mode-knob"><span></span></span></button>
   <button id="btn-refresh" title="Reload file from disk"><svg viewBox="0 0 18 18"><use href="#i-reload"/></svg><span>Reload</span></button>
   <button id="btn-autoreload" title="Auto-reload external changes"><svg viewBox="0 0 18 18"><use href="#i-watch"/></svg><span>Auto-reload</span><span class="mode-knob"><span></span></span></button>
   <div class="rail-divider"></div>
@@ -1204,6 +1206,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=34"></script>
+<script src="app.js?v=36"></script>
 </body>
 </html>

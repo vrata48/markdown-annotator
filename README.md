@@ -33,6 +33,7 @@ Reviewing LLM-generated (or human-written) markdown usually means pasting text b
 - **Folder mode** — open a directory; a sidebar lists every markdown file in the tree.
 - **GitLab mode** — open a markdown file straight from a GitLab repo (gitlab.com or self-hosted, personal access token, browser-to-GitLab only — no middleman server). Saving commits to the branch you opened from, with conflict detection if the file changed remotely; the watcher polls for new commits just like it watches local files.
 - **Recent files** — one click away in the Open file dropdown; the last file reopens automatically after a page refresh (new tabs start clean).
+- **Auto-save** — optional: local files save themselves ~1.5 s after your last change (GitLab files stay manual, so every commit is deliberate).
 - **Disk watching** — the app notices when the open file changes on disk (an LLM rewriting it, another editor saving). Default: a banner offers to reload. Flip the **Auto-reload** toggle in the left rail to have clean files reload silently; conflicting unsaved changes always warn first.
 
 ### Comfort

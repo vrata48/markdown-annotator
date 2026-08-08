@@ -34,6 +34,7 @@ Browser-only, single-page markdown annotator. No server, no build step, no packa
 
 - Design tokens live in `:root` ("cool ink": white sheet on a cool slate desk, ultramarine accent — token names paper/desk/ink/pen/mark are kept from the old theme) with a dark variant in `:root[data-theme="dark"]`. Use the CSS variables, don't hardcode colors — every hardcoded color needs a light + dark token pair. Text on a `--pen` background must use `--on-pen` (ultramarine flips light↔dark). System font stacks only — no webfonts.
 - File watching polls `getFile().lastModified` every 3s: clean → silent reload; dirty → conflict banner. Saves re-baseline `state.lastModified` so they don't self-trigger.
+- Auto-save (opt-in toggle, **local files only** — remote auto-save would spam commits): `markDirty()` → `scheduleAutoSave()` debounces `saveFile()` by 1.5s. It skips silently while a conflict banner is up or before write permission was granted (the prompt needs a user gesture; the first manual Ctrl+S grants it).
 - Undo = `pushUndo()` before every source mutation. Adding a new mutation path without `pushUndo()` breaks Ctrl+Z silently.
 - Watch CSS specificity: `#rail button` (id+element) beats `#btn-x` (id) — prefix overrides with `#rail`. Same trap with `.content h2` vs `#welcome h2`.
 - Design specs for shipped features live in `docs/superpowers/specs/`.

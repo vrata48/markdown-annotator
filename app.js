@@ -211,6 +211,41 @@ $('#btn-autoreload').addEventListener('click', () => {
 });
 refreshAutoReloadButton();
 
+// ── Auto-save (local files only — a remote auto-save would spam commits) ──
+function getAutoSave() {
+  try { return localStorage.getItem('auto-save') === '1'; } catch (_) { return false; }
+}
+function refreshAutoSaveButton() {
+  const on = getAutoSave();
+  const btn = $('#btn-autosave');
+  btn.title = 'Auto-save local files shortly after each change: ' + (on ? 'on' : 'off');
+  btn.classList.toggle('on', on);
+}
+$('#btn-autosave').addEventListener('click', () => {
+  try { localStorage.setItem('auto-save', getAutoSave() ? '0' : '1'); } catch (_) {}
+  refreshAutoSaveButton();
+  updateToolbar();
+  scheduleAutoSave();  // just turned on with unsaved changes → save them
+});
+refreshAutoSaveButton();
+
+let autoSaveTimer = null;
+function scheduleAutoSave() {
+  if (!getAutoSave() || !state.fileHandle || state.remote) return;
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(async () => {
+    if (!state.dirty || !getAutoSave() || !state.fileHandle || state.remote) return;
+    // A conflict banner means the disk version moved — never overwrite it silently.
+    if ($('#disk-banner').style.display === 'flex') return;
+    // The browser's permission prompt needs a user gesture a timer doesn't have;
+    // until the first manual save grants write access, stay dirty quietly.
+    try {
+      if (await state.fileHandle.queryPermission({ mode: 'readwrite' }) !== 'granted') return;
+    } catch (_) { return; }
+    saveFile();
+  }, 1500);
+}
+
 // ── Folder mode: browse a directory of markdown files ──────
 const fileSidebar = $('#file-sidebar');
 let folder = null;  // { name, files: [{path, handle}], currentPath }
@@ -1005,11 +1040,15 @@ function updateToolbar() {
   document.body.classList.toggle('file-open', state.fileOpen);
   document.body.classList.toggle('dirty', state.dirty);
   const noFile = !state.fileOpen;
-  $('#btn-save').disabled = noFile;
+  // With auto-save on (local files), saving is automatic — the button only
+  // lights up while something is unsaved (covers the first permission-granting
+  // save, and the case where auto-save is quietly waiting for permission).
+  $('#btn-save').disabled = noFile || (getAutoSave() && !state.remote && !state.dirty);
   // With auto-reload on and nothing unsaved, the watcher already covers manual
   // reloads; the button's only remaining job is "discard my changes".
   $('#btn-refresh').disabled = noFile || (getAutoReload() && !state.dirty);
   $('#btn-autoreload').disabled = noFile;
+  $('#btn-autosave').disabled = noFile || !!state.remote;  // local files only
   $('#btn-export').disabled = noFile;
   $('#btn-mode-toggle').disabled = noFile;
 }
@@ -1017,6 +1056,7 @@ function updateToolbar() {
 function markDirty() {
   state.dirty = true;
   updateToolbar();
+  scheduleAutoSave();
 }
 
 // ── Source mapping ──────────────────────────────────────────
