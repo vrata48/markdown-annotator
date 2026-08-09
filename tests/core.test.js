@@ -80,6 +80,56 @@ test('stripAll leaves fenced CriticMarkup examples alone', () => {
   assert.equal(Core.stripAll(src), '```\n{>> literal example <<}\n```\n');
 });
 
+// ── generated annotation review brief ──────────────────────
+test('review brief gives an LLM an intro and indexed annotation locations', () => {
+  const src = '# Plan\n\nShip the {== public beta ==}{>> Define a success metric. <<}\n\n' +
+    'Then {~~launch everywhere~>expand gradually~~}.\n\nFinish here.{>> Check ownership. <<}';
+  const out = Core.syncReviewBrief(src);
+  assert.ok(out.startsWith('<!-- markdown-annotator:review:start -->'));
+  assert.match(out, /Annotation review brief \(generated\)/);
+  assert.match(out, /3 unresolved annotations/);
+  assert.match(out, /\*\*Comment\*\* on `public beta` — `Define a success metric\.`/);
+  assert.match(out, /\*\*Suggested replacement\*\* `launch everywhere` → `expand gradually`/);
+  assert.match(out, /\*\*Point comment\*\* near .*`Check ownership\.`/);
+  assert.match(out, /> 1\. \*\*Line 16:\*\*/);
+  assert.match(out, /> 2\. \*\*Line 18:\*\*/);
+  assert.match(out, /> 3\. \*\*Line 20:\*\*/);
+  assert.equal(Core.scanAnnotations(out).length, 3);
+  assert.equal(Core.syncReviewBrief(out), out, 'brief regeneration must be idempotent');
+});
+
+test('review brief stays after YAML frontmatter and preserves CRLF', () => {
+  const src = '---\r\ntitle: Plan\r\n---\r\n\r\nText {== here ==}{>> Review it. <<}\r\n';
+  const out = Core.syncReviewBrief(src);
+  assert.ok(out.startsWith('---\r\ntitle: Plan\r\n---\r\n<!-- markdown-annotator:review:start -->\r\n'));
+  assert.equal(out.includes('\n') && !out.replace(/\r\n/g, '').includes('\n'), true);
+  assert.equal(Core.removeReviewBrief(out), src);
+});
+
+test('review brief refreshes changed comments and vanishes with the last annotation', () => {
+  const src = 'Text {== here ==}{>> Old note. <<}';
+  const briefed = Core.syncReviewBrief(src);
+  const updated = Core.syncReviewBrief(Core.updateGroup(briefed, 0, 'New note.'));
+  assert.match(updated, /`New note\.`/);
+  assert.doesNotMatch(updated, /`Old note\.`/);
+  const resolved = Core.syncReviewBrief(Core.deleteGroup(updated, 0));
+  assert.equal(resolved, 'Text here');
+  assert.equal(Core.reviewBriefRange(resolved), null);
+});
+
+test('clean export removes the generated review brief', () => {
+  const src = '# H\n\nA {== passage ==}{>> note <<}.';
+  assert.equal(Core.stripAll(Core.syncReviewBrief(src)), '# H\n\nA passage.');
+});
+
+test('CriticMarkup-looking review text remains literal and cannot forge markers', () => {
+  const src = 'A {== passage ==}{>> mention {==fake==} and markdown-annotator:review:end <<}.';
+  const out = Core.syncReviewBrief(src);
+  assert.equal(Core.scanAnnotations(out).length, 1);
+  assert.equal(Core.syncReviewBrief(out), out);
+  assert.match(out, /markdown-annotator review marker/);
+});
+
 // ── suggestEdit ─────────────────────────────────────────────
 test('suggestEdit wraps range as substitution', () => {
   const src = 'hello world!';

@@ -77,6 +77,11 @@ async function selectText(page, needle) {
     await page.locator('body.file-open').waitFor();
     assert(await page.locator('#annotation-nav.visible').count() === 1, 'sample did not expose annotation navigator');
     assert((await page.locator('#ann-nav-count').textContent()).endsWith('of 2'), 'sample annotation count is wrong');
+    const sampleBrief = await page.evaluate(() => ({
+      source: state.rawMarkdown.includes('<!-- markdown-annotator:review:start -->'),
+      rendered: document.querySelector('#content').textContent.includes('Annotation review brief'),
+    }));
+    assert(sampleBrief.source && !sampleBrief.rendered, 'source review brief was missing or duplicated in the app view');
 
     const comment = page.locator('.ann-wrap:not(.ann-edit)').first();
     await comment.focus();
@@ -137,6 +142,7 @@ async function selectText(page, needle) {
     await page.evaluate(() => saveFile());
     const saved = await page.evaluate(async () => (await window.__e2eHandle.getFile()).text());
     assert(saved.includes('{== fox ==}{>> Check animal <<}'), 'physical selection/save did not persist CriticMarkup');
+    assert(saved.startsWith('<!-- markdown-annotator:review:start -->') && saved.includes('Check animal'), 'saved file lacks the AI review brief');
 
     await page.evaluate(() => {
       state.rawMarkdown += '\n\nUnsaved line.';

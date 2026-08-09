@@ -108,10 +108,12 @@ For private repositories, use a PAT with the API access needed to read and updat
 ## Typical LLM workflow
 
 1. Open a document and add comments describing questions or requested changes.
-2. Save the file so the CriticMarkup becomes part of its source.
+2. Save the file so the CriticMarkup and its generated review brief become part of the source. The brief appears at the start of the file (after YAML frontmatter, when present) and gives an LLM a direct index of annotation types, source lines, passages, and comments.
 3. Ask an LLM working in the same repository to address the CriticMarkup comments and optionally express proposed changes as CriticMarkup suggestions.
 4. Let the annotator reload the externally modified file, or confirm the reload when prompted.
 5. Review the result and accept or reject suggested edits. Repeat as needed.
+
+The generated review brief is refreshed whenever the file is rendered in Markdown Annotator and disappears after the final annotation is resolved. It is intentionally hidden in the app's document view because the annotation navigator already provides the same overview there. Clean export removes both CriticMarkup and the brief.
 
 ## Project structure
 

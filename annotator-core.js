@@ -32,6 +32,144 @@
   // pair match.
   const CM_ANY = /\{==\s*((?:(?!==\})[\s\S])*?)\s*==\}\{>>\s*((?:(?!<<\})[\s\S])*?)\s*<<\}|\{==\s*((?:(?!==\})[\s\S])*?)\s*==\}|\{>>\s*((?:(?!<<\})[\s\S])*?)\s*<<\}|\{--((?:(?!--\})[\s\S])*?)--\}|\{\+\+((?:(?!\+\+\})[\s\S])*?)\+\+\}|\{~~((?:(?!~>|~~\})[\s\S])*?)~>((?:(?!~~\})[\s\S])*?)~~\}/g;
 
+  // Generated, source-visible briefing for people and LLMs consuming an
+  // annotated file outside the app. Exact boundary markers let the app refresh
+  // or remove the block without ever guessing which user-authored text it owns.
+  const REVIEW_START = '<!-- markdown-annotator:review:start -->';
+  const REVIEW_END = '<!-- markdown-annotator:review:end -->';
+
+  function preambleEnd(src) {
+    let pos = src.charCodeAt(0) === 0xFEFF ? 1 : 0;
+    const fm = src.slice(pos).match(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/);
+    if (fm) pos += fm[0].length;
+    return pos;
+  }
+
+  function reviewBriefRange(src) {
+    // Current files place the brief after an optional BOM/frontmatter. Accept
+    // position zero too so an older/plain brief can still be cleaned up if a
+    // frontmatter block is later added underneath it.
+    const expected = preambleEnd(src);
+    const start = src.startsWith(REVIEW_START, expected) ? expected
+      : src.startsWith(REVIEW_START, 0) ? 0 : -1;
+    if (start < 0) return null;
+    const markerEnd = src.indexOf(REVIEW_END, start + REVIEW_START.length);
+    if (markerEnd < 0) return null; // malformed/user text: preserve it
+    let end = markerEnd + REVIEW_END.length;
+    // syncReviewBrief always owns exactly two separator newlines after its
+    // block. Removing them restores the pre-brief source byte-for-byte.
+    for (let i = 0; i < 2; i++) {
+      if (src.startsWith('\r\n', end)) end += 2;
+      else if (src.startsWith('\n', end)) end += 1;
+      else break;
+    }
+    return { start, end, markdownStart: start + REVIEW_START.length, markdownEnd: markerEnd };
+  }
+
+  function removeReviewBrief(src) {
+    const range = reviewBriefRange(src);
+    return range ? src.slice(0, range.start) + src.slice(range.end) : src;
+  }
+
+  function briefText(value, max) {
+    let text = String(value == null ? '' : value)
+      .replace(/\s+/g, ' ')
+      .replace(/markdown-annotator:review:(?:start|end)/gi, 'markdown-annotator review marker')
+      .trim();
+    if (max && text.length > max) text = text.slice(0, Math.max(1, max - 1)).trimEnd() + '…';
+    return text;
+  }
+
+  // Markdown code span with a delimiter longer than any backtick run in the
+  // value. Besides being readable/copyable, this keeps CriticMarkup-looking
+  // examples in comments literal to scanAnnotations.
+  function briefCode(value, max) {
+    const text = briefText(value, max) || 'empty';
+    const runs = text.match(/`+/g) || [];
+    const width = runs.reduce((n, run) => Math.max(n, run.length), 0) + 1;
+    const ticks = '`'.repeat(width);
+    const pad = /^[ `]|[ `]$/.test(text) ? ' ' : '';
+    return ticks + pad + text + pad + ticks;
+  }
+
+  function nearbyText(src, pos) {
+    const before = briefText(src.slice(Math.max(0, pos - 55), pos), 55);
+    const after = briefText(src.slice(pos, Math.min(src.length, pos + 55)), 55);
+    const joined = (before ? '…' + before : '') + (after ? after + '…' : '');
+    return joined || 'document position';
+  }
+
+  function reviewGroups(src, items) {
+    const groups = [];
+    const byId = new Map();
+    for (const item of items) {
+      let group = byId.get(item.group);
+      if (!group) {
+        group = { group: item.group, items: [], first: item };
+        byId.set(item.group, group);
+        groups.push(group);
+      }
+      group.items.push(item);
+      if (item.comment) group.comment = item.comment;
+    }
+    for (const group of groups) {
+      const first = group.first;
+      group.bodyLine = 1 + (src.slice(0, first.mStart).match(/\n/g) || []).length;
+      if (first.kind === 'point') {
+        group.entry = '**Point comment** near ' + briefCode(nearbyText(src, first.mStart), 110) +
+          ' — ' + briefCode(group.comment, 180);
+      } else if (first.kind === 'del') {
+        group.entry = '**Suggested deletion** ' + briefCode(first.text, 120);
+      } else if (first.kind === 'ins') {
+        group.entry = '**Suggested insertion** ' + briefCode(first.text, 120) +
+          ' near ' + briefCode(nearbyText(src, first.mStart), 90);
+      } else if (first.kind === 'sub') {
+        group.entry = '**Suggested replacement** ' + briefCode(first.text, 100) +
+          ' → ' + briefCode(first.text2, 100);
+      } else {
+        const passages = group.items.filter(item => item.text).map(item => briefText(item.text, 90));
+        const target = passages.length > 1 ? passages.join(' … ') : passages[0] || 'passage';
+        group.entry = '**Comment** on ' + briefCode(target, 180) + ' — ' + briefCode(group.comment, 180);
+      }
+    }
+    return groups;
+  }
+
+  // Regenerate the AI-facing brief from the actual CriticMarkup. The block is
+  // absent when there are no unresolved annotations, so resolving the last one
+  // restores the original document (apart from that resolved mutation itself).
+  function syncReviewBrief(src) {
+    const body = removeReviewBrief(src);
+    const items = scanAnnotations(body);
+    if (!items.length) return body;
+
+    const groups = reviewGroups(body, items);
+    const nl = body.includes('\r\n') ? '\r\n' : '\n';
+    const insertAt = preambleEnd(body);
+    const lines = [
+      REVIEW_START,
+      '> **Annotation review brief (generated)**',
+      '>',
+      '> This document contains **' + groups.length + ' unresolved annotation' + (groups.length === 1 ? '' : 's') +
+        '** in CriticMarkup. Start with this index, then go directly to the listed source line or search for the quoted passage. Address comments beside highlighted passages; accept or reject suggested edits. This block is maintained by Markdown Annotator.',
+      '>',
+      '> Passage comments use `{==passage==}{>>comment<<}` and point comments use `{>>comment<<}`. Suggested changes use `{--old--}`, `{++new++}`, or `{~~old~>new~~}`. Keep proposed changes in CriticMarkup for human review, and remove a comment only after addressing it.',
+      '>',
+      '> **Annotation index**',
+    ];
+    // Every entry occupies one source line; adding the block plus its two owned
+    // separator newlines shifts all body annotations by a stable line count.
+    const shiftedBy = lines.length + groups.length + 2;
+    for (let i = 0; i < groups.length; i++) {
+      const group = groups[i];
+      const line = group.first.mStart >= insertAt ? group.bodyLine + shiftedBy : group.bodyLine;
+      lines.push('> ' + (i + 1) + '. **Line ' + line + ':** ' + group.entry);
+    }
+    lines.push(REVIEW_END);
+    const block = lines.join(nl) + nl + nl;
+    return body.slice(0, insertAt) + block + body.slice(insertAt);
+  }
+
   // Parse all annotations in document order, assigning a GROUP id: a run of
   // standalone highlights binds to the following paired comment (they form one
   // logical annotation); a lone pair or point is its own group.
@@ -143,6 +281,7 @@
   // suggested edits revert to the original text (reject semantics). Literal
   // CriticMarkup inside code fences is documentation, not markup — kept as-is.
   function stripAll(src) {
+    src = removeReviewBrief(src);
     let out = src;
     const fences = codeFenceRanges(src);
     const items = scanAnnotations(src);
@@ -661,6 +800,9 @@
     codeFenceRanges,
     inAnyRange,
     scanAnnotations,
+    reviewBriefRange,
+    removeReviewBrief,
+    syncReviewBrief,
     deleteGroup,
     acceptGroup,
     stripAll,

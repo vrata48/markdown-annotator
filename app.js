@@ -388,7 +388,7 @@ async function openSample() {
   cancelAutoSave();
   discardPendingEdits();
   if (watchTimer) { clearInterval(watchTimer); watchTimer = null; }
-  state.rawMarkdown = SAMPLE_MARKDOWN;
+  state.rawMarkdown = Core.syncReviewBrief(SAMPLE_MARKDOWN);
   state.fileName = 'annotation-sample.md';
   state.displayPath = 'Sample document — save to create your own copy';
   state.fileHandle = null;
@@ -1172,9 +1172,21 @@ function updateAnnotationNavigator() {
 
 function render() {
   const scrollTop = renderedView.scrollTop;
+  // Keep the generated source-level review brief truthful even when an older
+  // annotated file, or an externally edited one, is opened. A changed brief is
+  // a real in-memory source change and therefore remains dirty until saved.
+  const synced = Core.syncReviewBrief(state.rawMarkdown);
+  if (synced !== state.rawMarkdown) {
+    state.rawMarkdown = synced;
+    state.dirty = true;
+  }
   // Use the shared core: highlighted text is rendered as inline markdown, so a
   // highlight covering **bold**/links/`code` stays one annotation.
-  const { preprocessed, placeholders } = Core.preprocessCriticMarkup(state.rawMarkdown);
+  // The brief is for source consumers (especially an LLM); the app already has
+  // its compact annotation navigator, so hiding it here avoids duplicated text
+  // and prevents users from accidentally annotating generated metadata.
+  const renderSource = Core.removeReviewBrief(state.rawMarkdown);
+  const { preprocessed, placeholders } = Core.preprocessCriticMarkup(renderSource);
   let rendered = md.render(preprocessed);
   // Swap placeholders back to annotation HTML after markdown-it is done,
   // so table/block parsing isn't broken by inline annotation spans.
