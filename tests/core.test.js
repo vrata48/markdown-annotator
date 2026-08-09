@@ -141,6 +141,20 @@ test('preprocess carries kind, group and text2', () => {
   assert.equal(placeholders[1].kind, 'pair');
 });
 
+test('rendered annotations expose keyboard controls and separate substitutions', () => {
+  const md = { renderInline: (s) => s };
+  const pair = Core.annHtml(md, { i: 0, group: 0, kind: 'pair', text: 'text', comment: 'note' });
+  assert.match(pair, /tabindex="0"/);
+  assert.match(pair, /role="group"/);
+  assert.match(pair, /aria-label="Comment: note\. Press Enter to edit"/);
+  assert.match(pair, /aria-label="Delete comment"/);
+
+  const sub = Core.annHtml(md, { i: 1, group: 1, kind: 'sub', text: 'old', text2: 'new', comment: '' });
+  assert.match(sub, /class="ann-change-arrow"/);
+  assert.match(sub, /aria-label="Accept suggestion"/);
+  assert.match(sub, /aria-label="Reject suggestion"/);
+});
+
 test('preprocess: placeholder cannot collide with literal document text', () => {
   const literal = '​ANN0​';
   const src = literal + ' {== alpha ==}{>> note <<}';

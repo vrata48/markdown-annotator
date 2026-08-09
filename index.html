@@ -17,7 +17,8 @@
         integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"
         integrity="sha384-wLhprpjsmjc/XYIcF+LpMxd8yS1gss6jhevOp6F6zhiIoFK6AmHtm4bGKtehTani" crossorigin="anonymous"></script>
-<script src="annotator-core.js?v=9"></script>
+<script src="app-helpers.js?v=1"></script>
+<script src="annotator-core.js?v=10"></script>
 <!-- Mermaid ships as an ES module. Keep the loader external so the CSP can
      block inline scripts and event handlers in untrusted Markdown. -->
 <script type="module" src="mermaid-init.js?v=1"></script>
@@ -163,6 +164,12 @@ body {
 #rail button.on, #rail button.active { background: var(--pen-wash); color: var(--pen); }
 #rail button:disabled { opacity: 0.35; cursor: default; }
 #rail button:disabled:hover { background: transparent; color: var(--ink-soft); }
+body:not(.file-open) #rail #btn-save,
+body:not(.file-open) #rail #btn-autosave,
+body:not(.file-open) #rail #btn-refresh,
+body:not(.file-open) #rail #btn-autoreload,
+body:not(.file-open) #rail #btn-mode-toggle,
+body:not(.file-open) #rail #btn-export { display: none; }
 #rail button svg, #rail a.icon-btn svg {
   width: 18px; height: 18px;
   flex-shrink: 0;
@@ -202,6 +209,28 @@ body.rail-collapsed #rail .rail-dot {
   border: 2px solid var(--desk-deep);
 }
 body.rail-collapsed #rail .rail-divider { width: 24px; }
+body.rail-collapsed #rail button:hover::after,
+body.rail-collapsed #rail button:focus-visible::after,
+body.rail-collapsed #rail a.icon-btn:hover::after,
+body.rail-collapsed #rail a.icon-btn:focus-visible::after {
+  content: attr(aria-label);
+  position: absolute;
+  left: 46px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 6000;
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+}
 /* Narrow screens force the collapse — hide the toggle, the choice isn't yours there */
 @media (max-width: 768px) { #rail #btn-rail-toggle { display: none; } }
 
@@ -281,10 +310,11 @@ body.rail-collapsed #rail .rail-divider { width: 24px; }
 .file-item:hover { background: var(--desk); }
 .file-item.current { background: var(--pen-wash); color: var(--pen); font-weight: 600; }
 .file-empty { padding: 14px; font-size: 12.5px; color: var(--ink-soft); text-align: center; }
+.file-limit-note { margin: 4px 3px 8px; padding: 8px 9px; border: 1px solid var(--warn-border); border-radius: 7px; background: var(--warn-bg); color: var(--red-pen); font-size: 11.5px; line-height: 1.4; }
 
 
 
-/* Main layout — the sheet plus a margin for comments */
+/* Main layout — optional folder list plus the document sheet */
 #main-container {
   flex: 1;
   display: flex;
@@ -350,6 +380,58 @@ body.file-open #rendered-view .content { border-top-left-radius: 0; }
 /* Welcome state: the sheet is hidden, the welcome surface shows instead */
 body:not(.file-open) #rendered-view .content { display: none; }
 body.file-open #welcome { display: none; }
+
+/* Compact annotation navigator. It stays above the paper instead of moving
+   comments into a second rail, so the document remains the source of truth. */
+#annotation-nav {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: var(--card-shadow);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+#annotation-nav.visible { display: flex; }
+#annotation-nav button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  min-width: 30px;
+  height: 26px;
+  padding: 0 8px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+}
+#annotation-nav button:hover, #annotation-nav button:focus-visible { background: var(--pen-wash); color: var(--pen); }
+#ann-nav-count { font-weight: 650; color: var(--ink); white-space: nowrap; }
+#ann-nav-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ann-nav-list {
+  position: fixed;
+  z-index: 3500;
+  display: none;
+  flex-direction: column;
+  width: min(420px, calc(100vw - 24px));
+  max-height: min(420px, calc(100vh - 100px));
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+#ann-nav-list.visible { display: flex; }
+#ann-nav-list button { display: flex; gap: 9px; border: 0; border-radius: 6px; padding: 8px 9px; background: none; color: var(--ink); text-align: left; cursor: pointer; }
+#ann-nav-list button:hover, #ann-nav-list button.current { background: var(--pen-wash); }
+#ann-nav-list .ann-list-index { color: var(--ink-soft); flex-shrink: 0; }
+#ann-nav-list .ann-list-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ann-wrap.ann-current { outline: 3px solid var(--focus-ring); outline-offset: 3px; border-radius: 3px; }
 @media (max-width: 900px) {
   #rendered-view { padding: 16px 8px 60px; }
   #rendered-view .content { padding: 28px 24px; }
@@ -483,9 +565,12 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 .ann-point .ann-comment-badge { background: var(--pen-deep); }
 /* Whole highlight is clickable → edit */
 .ann-wrap:not(.ann-edit) { cursor: pointer; }
+.ann-wrap:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; border-radius: 3px; }
 
 .ann-delete {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: var(--danger);
   color: var(--on-pen);
   border: none;
@@ -497,9 +582,10 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
+  opacity: 0.28;
 }
 
-.ann-wrap:hover .ann-delete { display: inline-flex; align-items: center; justify-content: center; }
+.ann-wrap:hover .ann-delete, .ann-wrap:focus-within .ann-delete { opacity: 1; }
 
 /* Suggested edits ({--del--} {++ins++} {~~old~>new~~}) */
 .ann-del {
@@ -517,8 +603,9 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
   background: var(--ins-wash);
   border-radius: 2px;
 }
-.ann-edit-controls { display: none; white-space: nowrap; margin-left: 2px; vertical-align: middle; }
-.ann-edit:hover .ann-edit-controls { display: inline-flex; gap: 2px; }
+.ann-change-arrow { display: inline-block; margin: 0 0.32em; color: var(--ink-soft); font-family: var(--font-ui); }
+.ann-edit-controls { display: inline-flex; gap: 2px; white-space: nowrap; margin-left: 6px; vertical-align: middle; opacity: 0.68; }
+.ann-edit:hover .ann-edit-controls, .ann-edit:focus-within .ann-edit-controls { opacity: 1; }
 .ann-edit-controls button {
   border: 1px solid var(--line);
   background: var(--paper);
@@ -637,7 +724,12 @@ body.view-mode .ann-edit-controls { display: none !important; }
   padding: 0;
 }
 #welcome .tagline { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 24px; }
-#welcome .local-note { text-decoration: underline; text-underline-offset: 3px; }
+#welcome .local-note { display: block; margin-top: 8px; font-size: 12px; color: var(--ink-soft); }
+#welcome .welcome-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+#welcome .welcome-actions button { border: 1px solid var(--line); border-radius: 8px; padding: 9px 16px; background: var(--paper); color: var(--ink); cursor: pointer; font: 600 13px var(--font-ui); }
+#welcome .welcome-actions .primary { background: var(--pen); border-color: var(--pen); color: var(--on-pen); }
+#welcome .welcome-actions button:hover { background: var(--pen-wash); color: var(--pen); }
+#welcome .welcome-actions .primary:hover { background: var(--pen-deep); color: var(--on-pen); }
 #welcome .kbd-row {
   margin-top: 24px;
   padding-top: 18px;
@@ -883,6 +975,8 @@ body.view-mode #rendered-view .content { cursor: auto; }
   padding: 14px 16px 16px;
 }
 .app-dialog.visible { display: flex; }
+#dialog-backdrop { position: fixed; inset: 0; z-index: 3900; display: none; background: var(--drag-wash); backdrop-filter: blur(1px); }
+#dialog-backdrop.visible { display: block; }
 .app-dialog header {
   display: flex;
   align-items: center;
@@ -914,6 +1008,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
   color: var(--ink-soft);
 }
 .gl-actions { display: flex; align-items: center; gap: 10px; }
+.gl-token-note { margin: -2px 0 2px 22px; color: var(--ink-soft); font-size: 11.5px; line-height: 1.4; }
 #gl-status, #cd-status { flex: 1; font-size: 12px; color: var(--ink-soft); min-height: 15px; }
 #gl-status.gl-error, #cd-status.gl-error { color: var(--danger); }
 .dialog-primary {
@@ -930,6 +1025,9 @@ body.view-mode #rendered-view .content { cursor: auto; }
 }
 .dialog-primary:hover { background: var(--pen-deep); }
 .dialog-primary:disabled { opacity: 0.5; cursor: default; }
+.dialog-secondary { border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink); font: 600 12.5px var(--font-ui); padding: 7px 16px; cursor: pointer; }
+#message-dialog p { font-size: 13.5px; line-height: 1.5; color: var(--ink); }
+#message-dialog .gl-actions { justify-content: flex-end; }
 /* Commit dialog specifics */
 .cd-opt { display: flex; align-items: baseline; gap: 8px; font-size: 13px; cursor: pointer; }
 .cd-opt input { accent-color: var(--pen); }
@@ -1069,24 +1167,24 @@ body.view-mode #rendered-view .content { cursor: auto; }
 
 <!-- Pen-tray rail: labeled controls on the left; the file name rides the sheet -->
 <div id="rail">
-  <button id="btn-rail-toggle" title="Collapse the panel"><svg viewBox="0 0 18 18"><use id="rail-toggle-icon" href="#i-chev-l"/></svg><span id="rail-toggle-label">Collapse</span></button>
+  <button id="btn-rail-toggle" title="Collapse the panel" aria-label="Collapse the panel"><svg viewBox="0 0 18 18"><use id="rail-toggle-icon" href="#i-chev-l"/></svg><span id="rail-toggle-label">Collapse</span></button>
   <div class="rail-divider"></div>
-  <button id="btn-open" title="Open a markdown file (Ctrl+O)"><svg viewBox="0 0 18 18"><use href="#i-file"/></svg><span>Open file</span></button>
-  <button id="btn-open-folder" title="Open a folder of markdown files"><svg viewBox="0 0 18 18"><use href="#i-folder"/></svg><span>Open folder</span></button>
-  <button id="btn-gitlab" title="Open a markdown file from a GitLab repository"><svg viewBox="0 0 18 18"><use href="#i-tanuki"/></svg><span>Open GitLab</span></button>
-  <button id="btn-recent" title="Recently opened files"><svg viewBox="0 0 18 18"><use href="#i-history"/></svg><span>Recent</span></button>
-  <button id="btn-save" title="Save (Ctrl+S)"><svg viewBox="0 0 18 18"><use href="#i-save"/></svg><span>Save</span><span class="rail-dot"></span></button>
-  <button id="btn-autosave" title="Auto-save local files shortly after each change"><svg viewBox="0 0 18 18"><use href="#i-zap"/></svg><span>Auto-save</span><span class="mode-knob"><span></span></span></button>
-  <button id="btn-refresh" title="Reload file from disk"><svg viewBox="0 0 18 18"><use href="#i-reload"/></svg><span>Reload</span></button>
-  <button id="btn-autoreload" title="Auto-reload external changes"><svg viewBox="0 0 18 18"><use href="#i-watch"/></svg><span>Auto-reload</span><span class="mode-knob"><span></span></span></button>
+  <button id="btn-open" title="Open a markdown file (Ctrl+O)" aria-label="Open file"><svg viewBox="0 0 18 18"><use href="#i-file"/></svg><span>Open file</span></button>
+  <button id="btn-open-folder" title="Open a folder of markdown files" aria-label="Open folder"><svg viewBox="0 0 18 18"><use href="#i-folder"/></svg><span>Open folder</span></button>
+  <button id="btn-gitlab" title="Open a markdown file from a GitLab repository" aria-label="Open from GitLab"><svg viewBox="0 0 18 18"><use href="#i-tanuki"/></svg><span>Open GitLab</span></button>
+  <button id="btn-recent" title="Recently opened files" aria-label="Recent files"><svg viewBox="0 0 18 18"><use href="#i-history"/></svg><span>Recent</span></button>
+  <button id="btn-save" title="Save (Ctrl+S)" aria-label="Save"><svg viewBox="0 0 18 18"><use href="#i-save"/></svg><span>Save</span><span class="rail-dot"></span></button>
+  <button id="btn-autosave" title="Auto-save local files shortly after each change" aria-label="Toggle auto-save"><svg viewBox="0 0 18 18"><use href="#i-zap"/></svg><span>Auto-save</span><span class="mode-knob"><span></span></span></button>
+  <button id="btn-refresh" title="Reload file from disk" aria-label="Reload file"><svg viewBox="0 0 18 18"><use href="#i-reload"/></svg><span>Reload</span></button>
+  <button id="btn-autoreload" title="Auto-reload external changes" aria-label="Toggle auto-reload"><svg viewBox="0 0 18 18"><use href="#i-watch"/></svg><span>Auto-reload</span><span class="mode-knob"><span></span></span></button>
   <div class="rail-divider"></div>
-  <button id="btn-mode-toggle" title="View mode: read-only, no annotation popups (Ctrl+E)"><svg viewBox="0 0 18 18"><use href="#i-eye"/></svg><span>View mode</span><span class="mode-knob"><span></span></span></button>
-  <button id="btn-export" title="Export a clean copy (annotations removed)"><svg viewBox="0 0 18 18"><use href="#i-export"/></svg><span>Export</span></button>
+  <button id="btn-mode-toggle" title="View mode: read-only, no annotation popups (Ctrl+E)" aria-label="Toggle view mode"><svg viewBox="0 0 18 18"><use href="#i-eye"/></svg><span>View mode</span><span class="mode-knob"><span></span></span></button>
+  <button id="btn-export" title="Export a clean copy (annotations removed)" aria-label="Export"><svg viewBox="0 0 18 18"><use href="#i-export"/></svg><span>Export</span></button>
   <div class="rail-gap"></div>
-  <a id="github-link" class="icon-btn" href="https://github.com/vrata48/markdown-annotator" target="_blank" rel="noopener" title="GitHub repository">
+  <a id="github-link" class="icon-btn" href="https://github.com/vrata48/markdown-annotator" target="_blank" rel="noopener" title="GitHub repository" aria-label="GitHub repository">
     <svg viewBox="0 0 18 18"><use href="#i-github"/></svg><span>GitHub</span>
   </a>
-  <button id="btn-theme" title="Toggle dark mode"><svg viewBox="0 0 18 18"><use id="theme-icon" href="#i-moon"/></svg><span id="theme-label">Dark mode</span></button>
+  <button id="btn-theme" title="Toggle dark mode" aria-label="Toggle dark mode"><svg viewBox="0 0 18 18"><use id="theme-icon" href="#i-moon"/></svg><span id="theme-label">Dark mode</span></button>
 </div>
 
 <div id="main-container">
@@ -1104,14 +1202,25 @@ body.view-mode #rendered-view .content { cursor: auto; }
         <span class="tab-dirty" title="Unsaved changes">&bull;</span>
         <button id="btn-close-file" title="Close file">&times;</button>
       </div>
+      <div id="annotation-nav" aria-label="Annotation navigator">
+        <button id="ann-nav-prev" type="button" title="Previous annotation" aria-label="Previous annotation">&larr;</button>
+        <button id="ann-nav-next" type="button" title="Next annotation" aria-label="Next annotation">&rarr;</button>
+        <span id="ann-nav-count"></span>
+        <span id="ann-nav-summary"></span>
+        <button id="ann-nav-all" type="button" aria-haspopup="true" aria-expanded="false">All</button>
+      </div>
       <div class="content" id="content"></div>
       <div id="welcome">
           <div class="welcome-head">
             <div class="welcome-mark">&lsaquo;&rsaquo;</div>
             <h2>Markdown Annotator</h2>
           </div>
-          <p class="tagline">Highlight passages, leave comments, and suggest edits &mdash; your feedback lives in the file itself as plain-text CriticMarkup, ready for any person or LLM to act on. <span class="local-note">Everything happens in your browser: files open and save locally &mdash; or commit straight to your own GitLab &mdash; and nothing is ever sent anywhere else.</span></p>
+          <p class="tagline">Highlight passages and leave comments; review suggested edits already present in the file. Feedback stays as plain-text CriticMarkup, ready for any person or LLM to act on. <span class="local-note">Local file contents stay on your device. GitLab mode contacts only the instance you choose; display libraries load from the pinned CDNs listed in this project.</span></p>
           <div id="browser-warning">This app needs Chrome or Edge &mdash; it opens and saves files on your computer through the File System Access API, which this browser doesn't support.</div>
+          <div class="welcome-actions">
+            <button id="btn-welcome-open" class="primary" type="button">Open a file</button>
+            <button id="btn-sample" type="button">Try a sample document</button>
+          </div>
           <div id="welcome-recent">
             <h3>Recent <button id="btn-clear-recent" title="Forget all recent files">Clear</button></h3>
             <div id="welcome-recent-list"></div>
@@ -1127,7 +1236,9 @@ body.view-mode #rendered-view .content { cursor: auto; }
   </div>
 </div>
 
-<div id="annotation-popup">
+<div id="ann-nav-list" role="menu" aria-label="All annotations"></div>
+
+<div id="annotation-popup" role="dialog" aria-label="Add comment">
   <div class="selected-preview" id="selected-preview"></div>
   <textarea id="annotation-input" placeholder="Add your comment..."></textarea>
   <div class="btn-row">
@@ -1136,7 +1247,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
   </div>
 </div>
 
-<div id="edit-popup">
+<div id="edit-popup" role="dialog" aria-label="Edit comment">
   <textarea id="edit-input" placeholder="Edit comment..."></textarea>
   <div class="btn-row">
     <button id="btn-edit-cancel" style="background:var(--paper);color:var(--text);">Cancel</button>
@@ -1156,10 +1267,12 @@ body.view-mode #rendered-view .content { cursor: auto; }
 <div id="ins-caret"></div>
 
 <!-- Remote commit: pick the branch (and optionally an MR) on first save -->
-<div id="commit-dialog" class="app-dialog">
+<div id="dialog-backdrop"></div>
+
+<div id="commit-dialog" class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="cd-title">
   <header>
-    <span>Commit to GitLab</span>
-    <button id="cd-close" title="Close">&times;</button>
+    <span id="cd-title">Commit to GitLab</span>
+    <button id="cd-close" title="Close" aria-label="Close">&times;</button>
   </header>
   <label class="cd-opt">
     <input type="radio" name="cd-target" id="cd-current" checked>
@@ -1180,10 +1293,10 @@ body.view-mode #rendered-view .content { cursor: auto; }
 </div>
 
 <!-- GitLab: paste a file link + token, nothing else -->
-<div id="gitlab-dialog" class="app-dialog">
+<div id="gitlab-dialog" class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="gl-title">
   <header>
-    <span>Open from GitLab</span>
-    <button id="gl-close" title="Close">&times;</button>
+    <span id="gl-title">Open from GitLab</span>
+    <button id="gl-close" title="Close" aria-label="Close">&times;</button>
   </header>
   <label class="gl-field">
     <span>Path</span>
@@ -1193,9 +1306,20 @@ body.view-mode #rendered-view .content { cursor: auto; }
     <span>PAT</span>
     <input id="gl-token" type="password" placeholder="Personal access token (api scope)" spellcheck="false" autocomplete="off">
   </label>
+  <label class="cd-mr"><input type="checkbox" id="gl-remember"> Remember this token on this device</label>
+  <p class="gl-token-note">Tokens stay in memory by default and disappear when this tab closes. Remembering one stores it for this site origin, so use that only on a private device.</p>
   <div class="gl-actions">
     <div id="gl-status"></div>
     <button id="gl-open" class="dialog-primary">Open</button>
+  </div>
+</div>
+
+<div id="message-dialog" class="app-dialog" role="alertdialog" aria-modal="true" aria-labelledby="message-title" aria-describedby="message-text">
+  <header><span id="message-title">Markdown Annotator</span></header>
+  <p id="message-text"></p>
+  <div class="gl-actions">
+    <button id="message-cancel" class="dialog-secondary" type="button">Cancel</button>
+    <button id="message-ok" class="dialog-primary" type="button">OK</button>
   </div>
 </div>
 
@@ -1215,6 +1339,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=41"></script>
+<script src="app.js?v=42"></script>
 </body>
 </html>

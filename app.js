@@ -8,6 +8,7 @@ const state = {
   fileOpen: false,
   fileHandle: null,   // local file (File System Access API), or
   remote: null,       // GitLab file: { base, projectId, projectPath, branch, path, lastCommitId }
+  sample: false,      // in-memory onboarding document; first save asks for a file
   diskMoved: false,   // the on-disk/remote version changed under us (survives banner dismissal)
   mode: 'annotate',   // 'annotate' | 'view'
 };
@@ -25,6 +26,55 @@ const tabName = $('#tab-name');
 const editPopup = $('#edit-popup');
 const editInput = $('#edit-input');
 const saveStatus = $('#save-status');
+const Helpers = window.AnnotatorAppHelpers;
+
+// Accessible app-owned modal dialogs replace native alert/confirm boxes and
+// provide consistent focus trapping/restoration for every modal surface.
+let activeModal = null;
+let modalPreviousFocus = null;
+let messageResolve = null;
+
+function showModal(dialog, initialFocus) {
+  modalPreviousFocus = document.activeElement;
+  activeModal = dialog;
+  $('#dialog-backdrop').classList.add('visible');
+  dialog.classList.add('visible');
+  requestAnimationFrame(() => (initialFocus || dialog.querySelector('button, input, textarea')).focus());
+}
+
+function hideModal(dialog) {
+  if (!dialog || !dialog.classList.contains('visible')) return;
+  dialog.classList.remove('visible');
+  if (activeModal === dialog) {
+    activeModal = null;
+    $('#dialog-backdrop').classList.remove('visible');
+    if (modalPreviousFocus && modalPreviousFocus.isConnected) modalPreviousFocus.focus();
+    modalPreviousFocus = null;
+  }
+}
+
+function showMessage(message, options) {
+  const opts = options || {};
+  $('#message-title').textContent = opts.title || 'Markdown Annotator';
+  $('#message-text').textContent = message;
+  $('#message-cancel').style.display = opts.confirm ? '' : 'none';
+  $('#message-ok').textContent = opts.okText || 'OK';
+  showModal($('#message-dialog'), opts.confirm ? $('#message-cancel') : $('#message-ok'));
+  return new Promise(resolve => { messageResolve = resolve; });
+}
+
+function showAppAlert(message, title) { return showMessage(message, { title }); }
+function askConfirmation(message, okText) { return showMessage(message, { confirm: true, okText: okText || 'Continue' }); }
+
+function finishMessage(result) {
+  hideModal($('#message-dialog'));
+  const resolve = messageResolve;
+  messageResolve = null;
+  if (resolve) resolve(result);
+}
+
+$('#message-ok').addEventListener('click', () => finishMessage(true));
+$('#message-cancel').addEventListener('click', () => finishMessage(false));
 
 // ── Markdown-it setup ──────────────────────────────────────
 const md = markdownit({
@@ -57,6 +107,34 @@ const FILE_TYPES = [{
   accept: { 'text/markdown': ['.md', '.markdown', '.mdx', '.txt'] },
 }];
 
+const SAMPLE_MARKDOWN = `# Product review sample
+
+This document is safe to experiment with. Select any prose to add a comment, or click beside text for a point note.
+
+## Existing feedback
+
+The launch plan is {==clear and ambitious==}{>> Is the success metric defined anywhere? <<}, but the final milestone is still open.
+
+An external reviewer can propose a change like {~~ship immediately~>run a small public beta first~~}. Use the visible accept or reject buttons to resolve it.
+
+> A block quote can contain **formatting**, a [link](https://example.com), and comments across multiple lines.
+
+| Area | Status | Owner |
+| --- | --- | --- |
+| Accessibility | In review | Casey |
+| Documentation | Ready | Morgan |
+
+\`\`\`js
+// CriticMarkup inside code stays literal and is never treated as feedback.
+const example = "{>> literal code <<}";
+\`\`\`
+
+\`\`\`mermaid
+flowchart LR
+  Draft --> Review --> Publish
+\`\`\`
+`;
+
 // Any path that replaces the source from outside (open, reload, an external
 // change picked up by the watcher) must drop in-flight annotation state:
 // state.pending holds source OFFSETS and state.editingIdx a group id, both
@@ -69,7 +147,7 @@ function discardPendingEdits() {
 
 async function openHandle(handle, opts) {
   const silent = opts && opts.silent;
-  if (state.dirty && !confirm('You have unsaved changes. Open another file anyway?')) return;
+  if (state.dirty && !await askConfirmation('You have unsaved changes. Open another file anyway?', 'Open file')) return;
   cancelAutoSave();  // the user just chose to discard — a pending timer must not save
   discardPendingEdits();
   try {
@@ -85,6 +163,7 @@ async function openHandle(handle, opts) {
     state.rawMarkdown = await file.text();
     state.fileHandle = handle;
     state.remote = null;
+    state.sample = false;
     state.fileName = file.name;
     state.displayPath = file.name;  // real paths are hidden from web pages
     state.dirty = false;
@@ -100,7 +179,7 @@ async function openHandle(handle, opts) {
     try { sessionStorage.setItem('had-file', '1'); } catch (_) {}
   } catch (e) {
     if (e && e.name === 'AbortError') return;
-    if (!silent) alert('Failed to open file: ' + e.message);
+    if (!silent) showAppAlert('Failed to open file: ' + e.message, 'Could not open file');
   }
 }
 
@@ -132,7 +211,7 @@ async function pickFile() {
     const [handle] = await window.showOpenFilePicker({ types: FILE_TYPES });
     if (handle) await openHandle(handle);
   } catch (e) {
-    if (e && e.name !== 'AbortError') alert('Failed to open file: ' + e.message);
+    if (e && e.name !== 'AbortError') showAppAlert('Failed to open file: ' + e.message, 'Could not open file');
   }
 }
 
@@ -158,7 +237,7 @@ async function reloadFromDisk() {
     showNotice('Reloaded from disk', 'ok');
   } catch (e) {
     hideProgress();
-    alert('Failed to reload file: ' + e.message);
+    showAppAlert('Failed to reload file: ' + e.message, 'Could not reload file');
   }
 }
 
@@ -288,24 +367,49 @@ async function pickFolder() {
   try {
     const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
     const files = [];
-    await collectMarkdownFiles(dir, '', files, 0);
+    const scan = { depthLimited: false, fileLimited: false };
+    await collectMarkdownFiles(dir, '', files, 0, scan);
     files.sort((a, b) => a.path.localeCompare(b.path));
-    folder = { name: dir.name, files, currentPath: null };
+    folder = { name: dir.name, files, currentPath: null, scan };
     renderFileSidebar();
     fileSidebar.classList.add('visible');
+    if (scan.depthLimited || scan.fileLimited) {
+      showNotice('Folder list is partial — open the folder panel for details.', 'info');
+    }
     if (!files.length) return;
     if (files.length === 1) openFolderFile(files[0]);
   } catch (e) {
-    if (e && e.name !== 'AbortError') alert('Failed to open folder: ' + e.message);
+    if (e && e.name !== 'AbortError') showAppAlert('Failed to open folder: ' + e.message, 'Could not open folder');
   }
 }
 
-async function collectMarkdownFiles(dir, prefix, out, depth) {
-  if (depth > 6 || out.length >= 500) return;   // sanity caps for huge trees
+async function openSample() {
+  if (state.dirty && !await askConfirmation('You have unsaved changes. Open the sample document anyway?', 'Open sample')) return;
+  cancelAutoSave();
+  discardPendingEdits();
+  if (watchTimer) { clearInterval(watchTimer); watchTimer = null; }
+  state.rawMarkdown = SAMPLE_MARKDOWN;
+  state.fileName = 'annotation-sample.md';
+  state.displayPath = 'Sample document — save to create your own copy';
+  state.fileHandle = null;
+  state.remote = null;
+  state.sample = true;
+  state.dirty = false;
+  state.diskMoved = false;
+  state.fileOpen = true;
+  clearUndo();
+  render();
+  showNotice('Sample opened — try selecting a passage', 'info');
+}
+
+async function collectMarkdownFiles(dir, prefix, out, depth, scan) {
+  if (depth > 6) { scan.depthLimited = true; return; }
+  if (out.length >= 500) { scan.fileLimited = true; return; }
   for await (const [name, handle] of dir.entries()) {
+    if (out.length >= 500) { scan.fileLimited = true; break; }
     if (name.startsWith('.') || name === 'node_modules') continue;
     if (handle.kind === 'directory') {
-      await collectMarkdownFiles(handle, prefix + name + '/', out, depth + 1);
+      await collectMarkdownFiles(handle, prefix + name + '/', out, depth + 1, scan);
     } else if (/\.(md|markdown|mdx|txt)$/i.test(name)) {
       out.push({ path: prefix + name, handle });
     }
@@ -318,8 +422,22 @@ function renderFileSidebar() {
   $('#folder-name').title = folder.name;
   const list = $('#file-list');
   list.innerHTML = '';
+  if (folder.scan && (folder.scan.depthLimited || folder.scan.fileLimited)) {
+    const note = document.createElement('div');
+    note.className = 'file-limit-note';
+    const reasons = [];
+    if (folder.scan.fileLimited) reasons.push('showing the first 500 markdown files');
+    if (folder.scan.depthLimited) reasons.push('folders deeper than 6 levels skipped');
+    note.textContent = 'Partial list: ' + reasons.join('; ') + '.';
+    list.appendChild(note);
+  }
   if (!folder.files.length) {
-    list.innerHTML = '<div class="file-empty">No markdown files in this folder.</div>';
+    const empty = document.createElement('div');
+    empty.className = 'file-empty';
+    empty.textContent = folder.scan && (folder.scan.depthLimited || folder.scan.fileLimited)
+      ? 'No markdown files found within the scan limits.'
+      : 'No markdown files in this folder.';
+    list.appendChild(empty);
     return;
   }
   for (const f of folder.files) {
@@ -344,20 +462,41 @@ async function openFolderFile(f) {
 
 // ── GitLab: open/annotate/commit repo files via the REST API ─────────────
 // Browser-only: the page talks straight to the user's GitLab (gitlab.com or
-// self-hosted) with a personal access token. Token + base URL live in
-// localStorage; a remote file is state.remote instead of state.fileHandle.
+// self-hosted) with a personal access token. Tokens are memory-only unless the
+// user explicitly opts into device storage; a remote file is state.remote.
 function glNormBase(base) { return String(base || '').trim().replace(/\/+$/, ''); }
+const glMemoryTokens = Object.create(null);
+
+// Older releases persisted PATs without asking. Keep them usable for this tab
+// but remove that implicit persistence; a later explicit Remember choice sets
+// the consent marker and stores the selected instance again.
+try {
+  if (localStorage.getItem('gitlab-token-storage-consent-v1') !== '1') {
+    const parsed = JSON.parse(localStorage.getItem('gitlab-tokens') || '{}');
+    const old = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    Object.assign(glMemoryTokens, old);
+    const legacy = localStorage.getItem('gitlab-token') || '';
+    const legacyBase = glNormBase(localStorage.getItem('gitlab-base'));
+    if (legacy && legacyBase) glMemoryTokens[legacyBase] = legacy;
+    localStorage.removeItem('gitlab-tokens');
+    localStorage.removeItem('gitlab-token');
+  }
+} catch (_) {}
 
 // Tokens are per instance: a recent file on gitlab.com must not be fetched
 // with (or committed using) a self-hosted instance's token just because that
 // one was configured last. `gitlab-base` remembers the instance used last;
-// `gitlab-tokens` maps base → token.
+// `gitlab-tokens` maps base → token only after explicit Remember consent.
 function glTokens() {
-  try { return JSON.parse(localStorage.getItem('gitlab-tokens') || '{}') || {}; }
+  try {
+    const parsed = JSON.parse(localStorage.getItem('gitlab-tokens') || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  }
   catch (_) { return {}; }
 }
 function glTokenFor(base) {
   const b = glNormBase(base);
+  if (glMemoryTokens[b]) return glMemoryTokens[b];
   const map = glTokens();
   if (map[b]) return map[b];
   // Migration: the single-token era stored one key with no instance attached.
@@ -367,20 +506,32 @@ function glTokenFor(base) {
   } catch (_) {}
   return '';
 }
+function glStoredTokenFor(base) {
+  const b = glNormBase(base);
+  const map = glTokens();
+  if (map[b]) return map[b];
+  try {
+    const legacy = localStorage.getItem('gitlab-token') || '';
+    return legacy && b === glNormBase(localStorage.getItem('gitlab-base')) ? legacy : '';
+  } catch (_) { return ''; }
+}
 function glConfig() {
   let base = '';
   try { base = localStorage.getItem('gitlab-base') || ''; } catch (_) {}
   base = glNormBase(base) || 'https://gitlab.com';
   return { base, token: glTokenFor(base) };
 }
-function glSaveConfig(base, token) {
+function glSaveConfig(base, token, remember) {
   const b = glNormBase(base) || 'https://gitlab.com';
+  const t = String(token || '').trim();
+  if (t) glMemoryTokens[b] = t; else delete glMemoryTokens[b];
   try {
     localStorage.setItem('gitlab-base', b);
     const map = glTokens();
-    const t = String(token || '').trim();
-    if (t) map[b] = t; else delete map[b];
+    if (remember && t) map[b] = t; else delete map[b];
     localStorage.setItem('gitlab-tokens', JSON.stringify(map));
+    if (remember && t) localStorage.setItem('gitlab-token-storage-consent-v1', '1');
+    if (!remember) localStorage.removeItem('gitlab-token');
   } catch (_) {}
 }
 
@@ -421,7 +572,7 @@ function glDecodeB64(b64) {
 
 async function openGitLabFile(desc, opts) {
   const silent = opts && opts.silent;
-  if (state.dirty && !confirm('You have unsaved changes. Open another file anyway?')) return;
+  if (state.dirty && !await askConfirmation('You have unsaved changes. Open another file anyway?', 'Open GitLab file')) return;
   cancelAutoSave();  // the user just chose to discard — a pending timer must not save
   showProgress('Opening ' + desc.path + ' from GitLab…');
   // A recents entry carries the instance it came from; a fresh open from the
@@ -433,6 +584,7 @@ async function openGitLabFile(desc, opts) {
     discardPendingEdits();
     state.rawMarkdown = glDecodeB64(f.content);
     state.fileHandle = null;
+    state.sample = false;
     state.remote = {
       base,
       projectId: desc.projectId,
@@ -527,9 +679,9 @@ function showCommitDialog() {
   }
   cdSetStatus('');
   cdSyncRows();
-  commitDialog.classList.add('visible');
+  showModal(commitDialog, $('#cd-current'));
 }
-function hideCommitDialog() { commitDialog.classList.remove('visible'); }
+function hideCommitDialog() { hideModal(commitDialog); }
 function cdSyncRows() {
   $('#cd-other-row').classList.toggle('cd-disabled', !$('#cd-other').checked);
 }
@@ -615,11 +767,13 @@ function glSetStatus(msg, isError) {
 }
 
 function showGitLabDialog() {
-  $('#gl-token').value = glConfig().token;  // last instance's token; the link may change it
+  const config = glConfig();
+  $('#gl-token').value = config.token;
+  $('#gl-token').dataset.base = config.base;
+  $('#gl-remember').checked = !!glStoredTokenFor(config.base);
   $('#gl-url').value = '';
   glSetStatus('');
-  glDialog.classList.add('visible');
-  $('#gl-url').focus();
+  showModal(glDialog, $('#gl-url'));
 }
 
 // Pasting a link for an instance we already have a token for swaps it in, so
@@ -627,23 +781,32 @@ function showGitLabDialog() {
 function glSyncTokenToUrl() {
   const parsed = parseGitLabUrl($('#gl-url').value);
   if (!parsed) return;
+  const tokenInput = $('#gl-token');
   const known = glTokenFor(parsed.base);
-  if (known && known !== $('#gl-token').value) $('#gl-token').value = known;
+  if (tokenInput.dataset.base !== parsed.base) {
+    tokenInput.value = known || '';
+    tokenInput.dataset.base = parsed.base;
+  }
+  $('#gl-remember').checked = !!glStoredTokenFor(parsed.base);
 }
-function hideGitLabDialog() { glDialog.classList.remove('visible'); }
+function hideGitLabDialog() { hideModal(glDialog); }
 
 // Parse a pasted GitLab file URL: <base>/<group/sub/project>/-/blob/<ref>/<file path>
 function parseGitLabUrl(input) {
-  let u;
-  try { u = new URL(input.trim()); } catch (_) { return null; }
-  const m = u.pathname.match(/^\/(.+?)\/-\/blob\/([^/]+)\/(.+?)$/);
-  if (!m) return null;
-  return {
-    base: u.origin,
-    projectPath: decodeURIComponent(m[1]),
-    ref: decodeURIComponent(m[2]),
-    path: decodeURIComponent(m[3].split('?')[0].split('#')[0]),
-  };
+  return Helpers.parseGitLabBlobUrl(input);
+}
+
+async function resolveGitLabBranch(parsed, projectId) {
+  const candidates = Helpers.gitLabRefCandidates(parsed);
+  for (const candidate of candidates) {
+    try {
+      await glApi('/projects/' + projectId + '/repository/branches/' + encodeURIComponent(candidate.ref), null, parsed.base);
+      return candidate;
+    } catch (e) {
+      if (e.status !== 404) throw e;
+    }
+  }
+  return null;
 }
 
 // Resolve the link and open the file. A ref that isn't a branch (pinned
@@ -654,19 +817,17 @@ async function glOpenFromDialog() {
     glSetStatus('Paste a link to a file in a GitLab repo — the URL contains /-/blob/.', true);
     return;
   }
-  glSaveConfig(parsed.base, $('#gl-token').value);
-  glSetStatus('Opening ' + parsed.projectPath + '/' + parsed.path + '…');
+  glSaveConfig(parsed.base, $('#gl-token').value, $('#gl-remember').checked);
+  glSetStatus('Resolving branch and file…');
   try {
     const proj = await glApi('/projects/' + encodeURIComponent(parsed.projectPath), null, parsed.base);
-    let branch = parsed.ref;
-    try {
-      await glApi('/projects/' + proj.id + '/repository/branches/' + encodeURIComponent(branch), null, parsed.base);
-    } catch (_) {
-      branch = proj.default_branch;
-      showNotice('Link pins a commit — opened branch "' + branch + '" instead');
-    }
+    const resolved = await resolveGitLabBranch(parsed, proj.id);
+    const fallback = Helpers.gitLabRefCandidates(parsed).slice(-1)[0];
+    const branch = resolved ? resolved.ref : proj.default_branch;
+    const path = resolved ? resolved.path : fallback.path;
+    if (!resolved) showNotice('Link does not name a branch — opened "' + branch + '" instead');
     hideGitLabDialog();
-    await openGitLabFile({ base: parsed.base, projectId: proj.id, projectPath: proj.path_with_namespace, branch, path: parsed.path });
+    await openGitLabFile({ base: parsed.base, projectId: proj.id, projectPath: proj.path_with_namespace, branch, path });
   } catch (e) {
     glSetStatus('GitLab: ' + e.message, true);
   }
@@ -830,6 +991,21 @@ async function saveFile(opts) {
   const auto = !!(opts && opts.auto);  // timer-fired: no gestures, no modal dialogs
   if (!state.fileOpen) return;
   if (savePending) { scheduleAutoSave(); return; }  // in flight — retry shortly if auto-save is on
+  if (state.sample && !state.fileHandle) {
+    if (auto || typeof window.showSaveFilePicker !== 'function') return;
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName: state.fileName, types: FILE_TYPES });
+      if (!handle) return;
+      state.fileHandle = handle;
+      state.sample = false;
+      state.fileName = handle.name;
+      state.displayPath = handle.name;
+      state.lastModified = 0;
+    } catch (e) {
+      if (e && e.name !== 'AbortError') showAppAlert('Failed to choose a save location: ' + e.message, 'Could not save sample');
+      return;
+    }
+  }
   if (!state.fileHandle && !state.remote) return;
   if (auto && (!autoSaveActive() || state.diskMoved)) return;
   // First save of a remote file: ask where the commit should go.
@@ -859,7 +1035,7 @@ async function saveFile(opts) {
         }
       } else if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted' &&
           await handle.requestPermission({ mode: 'readwrite' }) !== 'granted') {
-        alert('Write access was not granted — the file was not saved.');
+        showAppAlert('Write access was not granted — the file was not saved.', 'Save cancelled');
         return;
       }
       const writable = await handle.createWritable();
@@ -867,6 +1043,7 @@ async function saveFile(opts) {
       await writable.close();
       // Re-baseline the watcher so our own write isn't reported as external.
       try { state.lastModified = (await handle.getFile()).lastModified; } catch (_) {}
+      if (!auto) recordRecent({ handle, name: handle.name });
     }
     state.diskMoved = false;  // a completed save is the deliberate overwrite
     // Only clear dirty if nothing changed while the write was in flight.
@@ -886,7 +1063,7 @@ async function saveFile(opts) {
     } else if (auto) {
       showNotice('Auto-save failed: ' + e.message);  // a timer must not raise modal alerts
     } else {
-      alert('Save failed: ' + e.message);
+      showAppAlert('Save failed: ' + e.message, 'Could not save file');
     }
   } finally {
     savePending = false;
@@ -899,9 +1076,9 @@ function flashSaved() {
 }
 
 // ── Close the current document (× on the file tab) ─────────
-function closeFile() {
+async function closeFile() {
   if (!state.fileOpen) return;
-  if (state.dirty && !confirm('You have unsaved changes. Close anyway?')) return;
+  if (state.dirty && !await askConfirmation('You have unsaved changes. Close anyway?', 'Close file')) return;
   if (watchTimer) { clearInterval(watchTimer); watchTimer = null; }
   cancelAutoSave();
   state.rawMarkdown = '';
@@ -909,6 +1086,7 @@ function closeFile() {
   state.displayPath = '';
   state.fileHandle = null;
   state.remote = null;
+  state.sample = false;
   state.dirty = false;
   state.diskMoved = false;
   state.fileOpen = false;
@@ -917,6 +1095,7 @@ function closeFile() {
   hideEditPopup();
   hideDiskBanner();
   contentEl.innerHTML = '';
+  updateAnnotationNavigator();
   setMode('annotate');
   if (folder) { folder.currentPath = null; renderFileSidebar(); }
   // A refresh after closing should land on the welcome screen, not reopen.
@@ -928,11 +1107,74 @@ $('#btn-close-file').addEventListener('click', closeFile);
 
 
 // ── Render ─────────────────────────────────────────────────
+let annotationNavGroups = [];
+let annotationNavIndex = -1;
+
+function renderAnnotationNavigatorText() {
+  const item = annotationNavGroups[annotationNavIndex];
+  if (!item) return;
+  $('#ann-nav-count').textContent = (annotationNavIndex + 1) + ' of ' + annotationNavGroups.length;
+  $('#ann-nav-summary').textContent = item.label || 'Annotation';
+  [...$('#ann-nav-list').children].forEach((button, index) => button.classList.toggle('current', index === annotationNavIndex));
+}
+
+function focusAnnotation(index) {
+  if (!annotationNavGroups.length) return;
+  annotationNavIndex = (index + annotationNavGroups.length) % annotationNavGroups.length;
+  const item = annotationNavGroups[annotationNavIndex];
+  contentEl.querySelectorAll('.ann-current').forEach(el => el.classList.remove('ann-current'));
+  const matches = [...contentEl.querySelectorAll('.ann-wrap[data-ann-group="' + item.group + '"]')];
+  matches.forEach(el => el.classList.add('ann-current'));
+  const target = matches[0];
+  if (target) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (target.matches('[tabindex]')) target.focus({ preventScroll: true });
+  }
+  renderAnnotationNavigatorText();
+}
+
+function updateAnnotationNavigator() {
+  const currentGroup = annotationNavGroups[annotationNavIndex] && annotationNavGroups[annotationNavIndex].group;
+  annotationNavGroups = Helpers.annotationGroups(Core.scanAnnotations(state.rawMarkdown));
+  if (!annotationNavGroups.length) {
+    annotationNavIndex = -1;
+    $('#annotation-nav').classList.remove('visible');
+    $('#ann-nav-list').classList.remove('visible');
+    $('#ann-nav-all').setAttribute('aria-expanded', 'false');
+    return;
+  }
+  const retained = annotationNavGroups.findIndex(item => item.group === currentGroup);
+  annotationNavIndex = retained >= 0 ? retained : Math.min(Math.max(annotationNavIndex, 0), annotationNavGroups.length - 1);
+  $('#annotation-nav').classList.add('visible');
+  renderAnnotationNavigatorText();
+  const list = $('#ann-nav-list');
+  list.innerHTML = '';
+  annotationNavGroups.forEach((item, index) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.setAttribute('role', 'menuitem');
+    button.classList.toggle('current', index === annotationNavIndex);
+    const number = document.createElement('span');
+    number.className = 'ann-list-index';
+    number.textContent = String(index + 1);
+    const label = document.createElement('span');
+    label.className = 'ann-list-label';
+    label.textContent = item.label || 'Annotation';
+    button.append(number, label);
+    button.addEventListener('click', () => {
+      list.classList.remove('visible');
+      $('#ann-nav-all').setAttribute('aria-expanded', 'false');
+      focusAnnotation(index);
+    });
+    list.appendChild(button);
+  });
+}
+
 function render() {
   const scrollTop = renderedView.scrollTop;
   // Use the shared core: highlighted text is rendered as inline markdown, so a
   // highlight covering **bold**/links/`code` stays one annotation.
-  const { preprocessed, count, placeholders } = Core.preprocessCriticMarkup(state.rawMarkdown);
+  const { preprocessed, placeholders } = Core.preprocessCriticMarkup(state.rawMarkdown);
   let rendered = md.render(preprocessed);
   // Swap placeholders back to annotation HTML after markdown-it is done,
   // so table/block parsing isn't broken by inline annotation spans.
@@ -960,6 +1202,12 @@ function render() {
       if (state.mode === 'view') return;
       openEditPopup(parseInt(el.dataset.annGroup, 10), el);
     });
+    el.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && e.target === el) {
+        e.preventDefault();
+        if (state.mode !== 'view') openEditPopup(parseInt(el.dataset.annGroup, 10), el);
+      }
+    });
   });
 
   // Suggested-edit controls: accept applies the change, reject reverts it.
@@ -982,6 +1230,8 @@ function render() {
   });
 
   updateToolbar();
+  updateAnnotationNavigator();
+  setMode(state.mode);
 
   initTableWrap();
   initTableResize();
@@ -1157,9 +1407,9 @@ function updateToolbar() {
   $('#btn-save').disabled = noFile || (autoSaveActive() && !state.dirty);
   // With auto-reload on and nothing unsaved, the watcher already covers manual
   // reloads; the button's only remaining job is "discard my changes".
-  $('#btn-refresh').disabled = noFile || (getAutoReload() && !state.dirty);
-  $('#btn-autoreload').disabled = noFile;
-  $('#btn-autosave').disabled = noFile || !!state.remote;  // local files only
+  $('#btn-refresh').disabled = noFile || state.sample || (getAutoReload() && !state.dirty);
+  $('#btn-autoreload').disabled = noFile || state.sample;
+  $('#btn-autosave').disabled = noFile || !!state.remote || state.sample;  // local files only
   refreshAutoSaveButton();  // its knob/title reflect the open file's type
   $('#btn-export').disabled = noFile;
   $('#btn-mode-toggle').disabled = noFile;
@@ -1173,114 +1423,7 @@ function markDirty() {
 
 // ── Source mapping ──────────────────────────────────────────
 function findInSource(selectedText, beforeCtx, afterCtx) {
-  const src = state.rawMarkdown;
-  const normalizedSel = selectedText.replace(/\r\n/g, '\n');
-
-  let candidates = [];
-
-  let pos = -1;
-  while ((pos = src.indexOf(normalizedSel, pos + 1)) !== -1) {
-    candidates.push({ start: pos, end: pos + normalizedSel.length, score: 0 });
-  }
-
-  const wrappers = [['**','**'],['*','*'],['__','__'],['_','_'],['`','`'],['~~','~~'],['***','***']];
-  for (const [open, close] of wrappers) {
-    let p = -1;
-    const wrapped = open + normalizedSel + close;
-    while ((p = src.indexOf(wrapped, p + 1)) !== -1) {
-      candidates.push({ start: p + open.length, end: p + open.length + normalizedSel.length, score: 1 });
-    }
-  }
-
-  if (candidates.length === 0) {
-    // Typography-tolerant pass: markdown-it's typographer renders "x" as “x”,
-    // -- as –, ... as … — the selection carries the pretty chars while the
-    // source has the plain ones. Normalize BOTH sides the same way (with an
-    // index map back into the raw source) and search again.
-    const selNorm = normalizeTypography(normalizedSel).norm.trim();
-    const { norm, map } = normalizeTypography(src);
-    if (selNorm) {
-      let cp = -1;
-      while ((cp = norm.indexOf(selNorm, cp + 1)) !== -1) {
-        const endOut = cp + selNorm.length;
-        const end = endOut < map.length ? map[endOut] : src.length;
-        candidates.push({ start: map[cp], end, score: -1 });
-      }
-    }
-  }
-
-  if (candidates.length === 0) return null;
-  if (candidates.length === 1) return candidates[0];
-
-  const normalizedBefore = stripMarkdownInline(beforeCtx).slice(-40);
-  const normalizedAfter = stripMarkdownInline(afterCtx).slice(0, 40);
-
-  for (const c of candidates) {
-    const srcBefore = stripMarkdownInline(src.slice(Math.max(0, c.start - 80), c.start)).slice(-40);
-    const srcAfter = stripMarkdownInline(src.slice(c.end, c.end + 80)).slice(0, 40);
-    c.score += lcsLength(normalizedBefore, srcBefore) + lcsLength(normalizedAfter, srcAfter);
-  }
-
-  candidates.sort((a, b) => b.score - a.score);
-  return candidates[0];
-}
-
-// Canonicalize typographic characters and collapse whitespace, keeping a map
-// from each output char to its input offset. Runs of '-' and '.' collapse to
-// one char so that source `---`/`...` lines up with rendered `—`/`…`.
-function normalizeTypography(str) {
-  const out = [];
-  const map = [];
-  let inSpace = false;
-  let last = '';
-  for (let i = 0; i < str.length; i++) {
-    let c = str[i];
-    if (c === '‘' || c === '’' || c === 'ʼ') c = "'";
-    else if (c === '“' || c === '”') c = '"';
-    else if (c === '–' || c === '—') c = '-';
-    else if (c === '…') c = '.';
-    else if (c === ' ') c = ' ';
-    if (/\s/.test(c)) {
-      if (!inSpace) { out.push(' '); map.push(i); }
-      inSpace = true;
-      last = ' ';
-      continue;
-    }
-    inSpace = false;
-    if ((c === '-' || c === '.') && last === c) continue;  // collapse runs
-    out.push(c);
-    map.push(i);
-    last = c;
-  }
-  return { norm: out.join(''), map };
-}
-
-function stripMarkdownInline(s) {
-  return s
-    .replace(/\*\*\*(.*?)\*\*\*/g, '$1')
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/\*(.*?)\*/g, '$1')
-    .replace(/~~(.*?)~~/g, '$1')
-    .replace(/`(.*?)`/g, '$1')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/^#{1,6}\s+/gm, '');
-}
-
-function lcsLength(a, b) {
-  if (!a || !b) return 0;
-  const m = a.length, n = b.length;
-  const prev = new Array(n + 1).fill(0);
-  for (let i = 1; i <= m; i++) {
-    let prevDiag = 0;
-    for (let j = 1; j <= n; j++) {
-      const temp = prev[j];
-      if (a[i-1] === b[j-1]) prev[j] = prevDiag + 1;
-      else prev[j] = Math.max(prev[j], prev[j-1]);
-      prevDiag = temp;
-    }
-  }
-  return prev[n];
+  return Helpers.findInSource(state.rawMarkdown, selectedText, beforeCtx, afterCtx);
 }
 
 // ── Undo (Ctrl+Z) — snapshots of the source before each mutation ──
@@ -1540,6 +1683,30 @@ function commitEdit() {
 
 // ── Event listeners ────────────────────────────────────────
 $('#btn-open').addEventListener('click', pickFile);
+$('#btn-welcome-open').addEventListener('click', pickFile);
+$('#btn-sample').addEventListener('click', openSample);
+$('#ann-nav-prev').addEventListener('click', () => focusAnnotation(annotationNavIndex - 1));
+$('#ann-nav-next').addEventListener('click', () => focusAnnotation(annotationNavIndex + 1));
+$('#ann-nav-all').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const list = $('#ann-nav-list');
+  const opening = !list.classList.contains('visible');
+  list.classList.toggle('visible', opening);
+  e.currentTarget.setAttribute('aria-expanded', String(opening));
+  if (opening) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    list.style.left = Math.max(12, Math.min(rect.right - list.offsetWidth, window.innerWidth - list.offsetWidth - 12)) + 'px';
+    list.style.top = Math.min(rect.bottom + 6, window.innerHeight - list.offsetHeight - 12) + 'px';
+    const current = list.querySelector('.current');
+    if (current) current.focus();
+  }
+});
+document.addEventListener('mousedown', (e) => {
+  if (!$('#ann-nav-list').contains(e.target) && !e.target.closest('#ann-nav-all')) {
+    $('#ann-nav-list').classList.remove('visible');
+    $('#ann-nav-all').setAttribute('aria-expanded', 'false');
+  }
+});
 $('#btn-open-folder').addEventListener('click', pickFolder);
 $('#btn-recent').addEventListener('click', (e) => {
   e.stopPropagation();
@@ -1553,7 +1720,7 @@ window.addEventListener('scroll', hideRecentMenu, true);
 $('#btn-save').addEventListener('click', saveFile);
 $('#btn-refresh').addEventListener('click', async () => {
   if (!state.fileOpen) return;
-  if (state.dirty && !confirm('You have unsaved changes. Reload anyway?')) return;
+  if (state.dirty && !await askConfirmation('You have unsaved changes. Reload anyway?', 'Reload file')) return;
   await reloadFromDisk();
 });
 
@@ -1599,7 +1766,7 @@ function exportBaseName() {
 async function exportPdf() {
   const container = await buildCleanHtml();
   const win = window.open('', '_blank');
-  if (!win) { alert('Popup was blocked — allow popups to export PDF.'); return; }
+  if (!win) { showAppAlert('Popup was blocked — allow popups to export PDF.', 'Could not export PDF'); return; }
   win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>' +
     Core.escapeHtml(exportBaseName()) + '</title><style>' + EXPORT_CSS + '</style></head><body>' +
     container.innerHTML + '</body></html>');
@@ -1686,7 +1853,7 @@ async function exportEpub() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   } catch (e) {
-    alert('EPUB export failed: ' + e.message);
+    showAppAlert('EPUB export failed: ' + e.message, 'Could not export EPUB');
   }
 }
 
@@ -1760,6 +1927,10 @@ function setMode(mode) {
   state.mode = mode;
   document.body.classList.toggle('view-mode', mode === 'view');
   $('#btn-mode-toggle').classList.toggle('on', mode === 'view');
+  contentEl.querySelectorAll('.ann-wrap:not(.ann-edit)').forEach(el => {
+    el.tabIndex = mode === 'view' ? -1 : 0;
+    el.setAttribute('aria-disabled', mode === 'view' ? 'true' : 'false');
+  });
   if (mode === 'view') {
     hideAnnotationPopup();
     hideEditPopup();
@@ -1936,7 +2107,18 @@ $('#btn-edit-save').addEventListener('click', commitEdit);
 $('#btn-edit-cancel').addEventListener('click', hideEditPopup);
 
 document.addEventListener('keydown', (e) => {
+  if (activeModal && e.key === 'Tab') {
+    const focusable = [...activeModal.querySelectorAll('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')]
+      .filter(el => el.offsetParent !== null);
+    if (focusable.length) {
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
   if (e.key === 'Escape') {
+    if ($('#message-dialog').classList.contains('visible')) { finishMessage(false); return; }
     if (commitDialog.classList.contains('visible')) { hideCommitDialog(); return; }
     if (glDialog.classList.contains('visible')) { hideGitLabDialog(); return; }
     if (recentMenu.classList.contains('visible')) { hideRecentMenu(); return; }

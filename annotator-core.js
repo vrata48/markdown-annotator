@@ -346,13 +346,14 @@
     const c = escapeHtml(e.comment);
     const g = e.group;
     const attrs = 'data-ann-idx="' + e.i + '" data-ann-group="' + g + '"';
+    const editAttrs = attrs + ' tabindex="0" role="group" aria-label="Comment: ' + c + '. Press Enter to edit"';
     const badge = '<span class="ann-comment-badge" ' + attrs + ' title="' + c + '">';
     // Text sits in its own span: the badge is a flex container, and CSS
     // text-overflow only ellipsizes inside a block-level child.
     const btext = function (t) { return '<span class="ann-badge-text">' + t + '</span>'; };
-    const delBtn = '<button class="ann-delete" data-ann-group="' + g + '">&times;</button>';
+    const delBtn = '<button class="ann-delete" data-ann-group="' + g + '" aria-label="Delete comment" title="Delete comment">&times;</button>';
     if (e.kind === 'point') {
-      return '<span class="ann-wrap ann-point" ' + attrs + '>' + badge + '&#128172; ' + btext(c) + delBtn + '</span></span>';
+      return '<span class="ann-wrap ann-point" ' + editAttrs + '>' + badge + '&#128172; ' + btext(c) + delBtn + '</span></span>';
     }
     if (e.kind === 'del' || e.kind === 'ins' || e.kind === 'sub') {
       // Suggested edit: strike the old text, underline the new; hover reveals
@@ -361,10 +362,10 @@
       let body = '';
       if (e.kind !== 'ins') body += '<del class="ann-del">' + inline(e.text) + '</del>';
       if (e.kind === 'ins') body += '<ins class="ann-ins">' + inline(e.text) + '</ins>';
-      if (e.kind === 'sub') body += '<ins class="ann-ins">' + inline(e.text2 || '') + '</ins>';
+      if (e.kind === 'sub') body += '<span class="ann-change-arrow" aria-hidden="true">&rarr;</span><ins class="ann-ins">' + inline(e.text2 || '') + '</ins>';
       const controls = '<span class="ann-edit-controls">' +
-        '<button class="ann-accept" data-ann-group="' + g + '" title="Accept suggestion">&#10003;</button>' +
-        '<button class="ann-reject" data-ann-group="' + g + '" title="Reject suggestion">&#10005;</button></span>';
+        '<button class="ann-accept" data-ann-group="' + g + '" title="Accept suggestion" aria-label="Accept suggestion">&#10003;</button>' +
+        '<button class="ann-reject" data-ann-group="' + g + '" title="Reject suggestion" aria-label="Reject suggestion">&#10005;</button></span>';
       return '<span class="ann-wrap ann-edit" ' + attrs + '>' + body + controls + '</span>';
     }
     const inner = (md && md.renderInline) ? md.renderInline(e.text) : escapeHtml(e.text);
@@ -372,9 +373,9 @@
     if (e.kind === 'highlight') {
       // Part of a multi-block group — highlight only, no badge (the comment lives
       // on the group's last block); still offer a hover-× that deletes the group.
-      return '<span class="ann-wrap ann-hl" ' + attrs + '>' + mark + '<button class="ann-delete ann-delete-hl" data-ann-group="' + g + '">&times;</button></span>';
+      return '<span class="ann-wrap ann-hl" ' + editAttrs + '>' + mark + '<button class="ann-delete ann-delete-hl" data-ann-group="' + g + '" aria-label="Delete comment" title="Delete comment">&times;</button></span>';
     }
-    return '<span class="ann-wrap" ' + attrs + '>' + mark + badge + btext(c) + delBtn + '</span></span>';
+    return '<span class="ann-wrap" ' + editAttrs + '>' + mark + badge + btext(c) + delBtn + '</span></span>';
   }
 
   // Apply the mermaid fence override to a markdown-it instance (shared config).

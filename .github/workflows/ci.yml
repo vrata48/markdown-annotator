@@ -13,5 +13,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Run core unit tests
+      - name: Run unit tests
         run: node --test "tests/*.test.js"
+      - name: Install browser test dependencies
+        run: npm install --no-save --no-package-lock playwright@1.55.0 markdown-it@14.1.0 mermaid@11.16.0
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run Chromium end-to-end tests
+        run: node tests/browser-e2e.cjs
