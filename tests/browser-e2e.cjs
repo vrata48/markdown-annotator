@@ -83,6 +83,17 @@ async function selectText(page, needle) {
     }));
     assert(sampleBrief.source && !sampleBrief.rendered, 'source review brief was missing or duplicated in the app view');
 
+    await page.locator('#btn-raw-toggle').click();
+    const rawMode = await page.evaluate(() => ({
+      mode: state.mode,
+      exact: document.querySelector('#raw-source').textContent === state.rawMarkdown,
+      hasBrief: document.querySelector('#raw-source').textContent.includes('Annotation review brief'),
+      renderedHidden: getComputedStyle(document.querySelector('#content')).display === 'none',
+    }));
+    assert(rawMode.mode === 'raw' && rawMode.exact && rawMode.hasBrief && rawMode.renderedHidden, 'raw source mode is incomplete');
+    await page.keyboard.press('Control+Shift+E');
+    assert(await page.evaluate(() => state.mode === 'annotate'), 'raw source toggle did not return to annotate mode');
+
     const comment = page.locator('.ann-wrap:not(.ann-edit)').first();
     await comment.focus();
     await comment.press('Enter');
@@ -166,7 +177,7 @@ async function selectText(page, needle) {
     await page.locator('#annotation-popup.visible').waitFor();
 
     assert(pageErrors.length === 0, 'page errors: ' + pageErrors.join('; '));
-    console.log('Browser E2E: sample, navigator, keyboard annotation controls, PAT privacy, physical selection/save, and Mermaid passed.');
+    console.log('Browser E2E: sample, navigator, raw source, keyboard annotation controls, PAT privacy, physical selection/save, and Mermaid passed.');
   } finally {
     await page.evaluate(async () => {
       try {

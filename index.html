@@ -169,6 +169,7 @@ body:not(.file-open) #rail #btn-autosave,
 body:not(.file-open) #rail #btn-refresh,
 body:not(.file-open) #rail #btn-autoreload,
 body:not(.file-open) #rail #btn-mode-toggle,
+body:not(.file-open) #rail #btn-raw-toggle,
 body:not(.file-open) #rail #btn-export { display: none; }
 #rail button svg, #rail a.icon-btn svg {
   width: 18px; height: 18px;
@@ -377,6 +378,29 @@ body.dirty #file-tab .tab-dirty { display: inline; }
   min-height: 400px;
 }
 body.file-open #rendered-view .content { border-top-left-radius: 0; }
+
+/* Exact source viewer. Read-only by design: source mutations continue through
+   the annotation core so undo snapshots and source offsets stay valid. */
+#raw-source {
+  display: none;
+  max-width: none;
+  min-height: 400px;
+  margin: 0;
+  padding: 40px 46px;
+  overflow: auto;
+  white-space: pre;
+  tab-size: 4;
+  font: 13.5px/1.55 var(--font-mono);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 0 10px 10px 10px;
+  box-shadow: var(--card-shadow);
+  cursor: text;
+  user-select: text;
+}
+body.file-open.raw-mode #raw-source { display: block; }
+body.raw-mode #content, body.raw-mode #annotation-nav { display: none !important; }
 /* Welcome state: the sheet is hidden, the welcome surface shows instead */
 body:not(.file-open) #rendered-view .content { display: none; }
 body.file-open #welcome { display: none; }
@@ -435,6 +459,7 @@ body.file-open #welcome { display: none; }
 @media (max-width: 900px) {
   #rendered-view { padding: 16px 8px 60px; }
   #rendered-view .content { padding: 28px 24px; }
+  #raw-source { padding: 28px 24px; }
 }
 
 /* Blinking insertion caret showing where a point comment will be inserted */
@@ -1154,6 +1179,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
     <g id="i-watch"><circle cx="9" cy="9" r="6"/><path d="M9 5.8V9l2.2 1.6"/></g>
     <g id="i-pen"><path d="M3.2 14.8l.9-3.7 7.6-7.6 2.8 2.8-7.6 7.6z"/><path d="M10.4 4.8l2.8 2.8"/></g>
     <g id="i-eye"><path d="M2 9s2.8-4.6 7-4.6S16 9 16 9s-2.8 4.6-7 4.6S2 9 2 9z"/><circle cx="9" cy="9" r="1.9"/></g>
+    <g id="i-code"><path d="m6.8 4.2-4 4.8 4 4.8M11.2 4.2l4 4.8-4 4.8"/></g>
     <g id="i-export"><path d="M9 11.5V3M9 3 6 6M9 3l3 3M3.5 11v3.5h11V11"/></g>
     <g id="i-moon"><path d="M14.6 10.8A5.9 5.9 0 0 1 7.2 3.4a5.9 5.9 0 1 0 7.4 7.4z"/></g>
     <g id="i-sun"><circle cx="9" cy="9" r="3.4"/><path d="M9 1.8v1.9M9 14.3v1.9M1.8 9h1.9M14.3 9h1.9M3.9 3.9l1.35 1.35M12.75 12.75l1.35 1.35M14.1 3.9l-1.35 1.35M5.25 12.75 3.9 14.1"/></g>
@@ -1178,7 +1204,8 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button id="btn-refresh" title="Reload file from disk" aria-label="Reload file"><svg viewBox="0 0 18 18"><use href="#i-reload"/></svg><span>Reload</span></button>
   <button id="btn-autoreload" title="Auto-reload external changes" aria-label="Toggle auto-reload"><svg viewBox="0 0 18 18"><use href="#i-watch"/></svg><span>Auto-reload</span><span class="mode-knob"><span></span></span></button>
   <div class="rail-divider"></div>
-  <button id="btn-mode-toggle" title="View mode: read-only, no annotation popups (Ctrl+E)" aria-label="Toggle view mode"><svg viewBox="0 0 18 18"><use href="#i-eye"/></svg><span>View mode</span><span class="mode-knob"><span></span></span></button>
+  <button id="btn-mode-toggle" title="View mode: rendered and read-only (Ctrl+E)" aria-label="Toggle view mode" aria-pressed="false"><svg viewBox="0 0 18 18"><use href="#i-eye"/></svg><span>View mode</span><span class="mode-knob"><span></span></span></button>
+  <button id="btn-raw-toggle" title="Raw source: exact Markdown, read-only (Ctrl+Shift+E)" aria-label="Toggle raw source" aria-pressed="false"><svg viewBox="0 0 18 18"><use href="#i-code"/></svg><span>Raw source</span></button>
   <button id="btn-export" title="Export a clean copy (annotations removed)" aria-label="Export"><svg viewBox="0 0 18 18"><use href="#i-export"/></svg><span>Export</span></button>
   <div class="rail-gap"></div>
   <a id="github-link" class="icon-btn" href="https://github.com/vrata48/markdown-annotator" target="_blank" rel="noopener" title="GitHub repository" aria-label="GitHub repository">
@@ -1210,6 +1237,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
         <button id="ann-nav-all" type="button" aria-haspopup="true" aria-expanded="false">All</button>
       </div>
       <div class="content" id="content"></div>
+      <pre id="raw-source" tabindex="0" aria-label="Raw Markdown source"></pre>
       <div id="welcome">
           <div class="welcome-head">
             <div class="welcome-mark">&lsaquo;&rsaquo;</div>
@@ -1229,6 +1257,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
             <span><span class="shortcut">Ctrl+O</span> Open</span>
             <span><span class="shortcut">Ctrl+S</span> Save</span>
             <span><span class="shortcut">Ctrl+E</span> Mode</span>
+            <span><span class="shortcut">Ctrl+Shift+E</span> Raw</span>
             <span><span class="shortcut">Ctrl+Z</span> Undo</span>
           </p>
       </div>
@@ -1339,6 +1368,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=43"></script>
+<script src="app.js?v=44"></script>
 </body>
 </html>

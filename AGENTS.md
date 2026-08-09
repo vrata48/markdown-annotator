@@ -16,8 +16,8 @@ Browser-only, single-page markdown annotator. No server, no build step, no packa
 - **Suggested edits**: `deleteGroup` = reject (revert to original), `acceptGroup` = accept (apply the change). The UI renders and accepts/rejects edits found in the file but no longer creates them — the popup's "Suggest edit" tab was removed (2026-08) on user preference; `Core.suggestEdit` remains for external writers/tests.
 - **`Core.docZone`** detects standalone point comments at the top of the file (after optional YAML frontmatter). The dedicated "Document comments" top panel was removed (2026-08); the app no longer calls `docZone` — top-of-file comments render as ordinary inline point badges. The core API + tests remain.
 - **Placeholder trick**: annotations are swapped for `​ANN{i}​` tokens before markdown-it runs, then swapped back to HTML — keeps pipes/braces from breaking table parsing. Don't "simplify" this away.
-- **Modes**: `state.mode` `'annotate' | 'view'`; view mode short-circuits annotation handlers and hides controls via body class `view-mode`.
-- **Comments render inline** as badges beside their passage (`Core.annHtml`); a margin-rail card layout was built during the 2026-08 redesign and reverted on user preference — don't reintroduce it. The whole `.ann-wrap` (not just the badge) is the click-to-edit target. Chrome state rides body classes: `file-open`, `dirty`, `view-mode`.
+- **Modes**: `state.mode` `'annotate' | 'view' | 'raw'`; view mode renders annotations inert via body class `view-mode`, while raw mode shows the exact read-only `state.rawMarkdown` (including its generated review brief) and hides rendered content/navigation via `raw-mode`. Both non-annotate modes short-circuit annotation handlers.
+- **Comments render inline** as badges beside their passage (`Core.annHtml`); a margin-rail card layout was built during the 2026-08 redesign and reverted on user preference — don't reintroduce it. The whole `.ann-wrap` (not just the badge) is the click-to-edit target. Chrome state rides body classes: `file-open`, `dirty`, `view-mode`, `raw-mode`.
 
 ## File I/O rules (Chromium-only, by decision)
 
@@ -42,4 +42,4 @@ Browser-only, single-page markdown annotator. No server, no build step, no packa
 - Watch CSS specificity: `#rail button` (id+element) beats `#btn-x` (id) — prefix overrides with `#rail`. Same trap with `.content h2` vs `#welcome h2`.
 - Design specs for shipped features live in `docs/superpowers/specs/`.
 - `.lab/` and `in/` are local scratch — never commit them.
-- Local scripts load with `?v=N` cache-busters (`app-helpers.js?v=1`, `annotator-core.js?v=10`, `app.js?v=42`). Bump core and app together when either interface changes — stale-cache mixes can throw "X is not a function" for users on plain reload. Bump the helper when its browser API changes.
+- Local scripts load with `?v=N` cache-busters (`app-helpers.js?v=1`, `annotator-core.js?v=11`, `app.js?v=44`). Bump core and app together when either interface changes — stale-cache mixes can throw "X is not a function" for users on plain reload. Bump the helper when its browser API changes.

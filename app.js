@@ -10,7 +10,7 @@ const state = {
   remote: null,       // GitLab file: { base, projectId, projectPath, branch, path, lastCommitId }
   sample: false,      // in-memory onboarding document; first save asks for a file
   diskMoved: false,   // the on-disk/remote version changed under us (survives banner dismissal)
-  mode: 'annotate',   // 'annotate' | 'view'
+  mode: 'annotate',   // 'annotate' | 'view' | 'raw'
 };
 
 const FS_SUPPORTED = typeof window.showOpenFilePicker === 'function';
@@ -18,6 +18,7 @@ const FS_SUPPORTED = typeof window.showOpenFilePicker === 'function';
 // ── DOM refs ───────────────────────────────────────────────
 const $ = (s) => document.querySelector(s);
 const contentEl = $('#content');
+const rawSourceEl = $('#raw-source');
 const renderedView = $('#rendered-view');
 const popup = $('#annotation-popup');
 const annInput = $('#annotation-input');
@@ -1180,6 +1181,9 @@ function render() {
     state.rawMarkdown = synced;
     state.dirty = true;
   }
+  // textContent keeps arbitrary Markdown inert and displays the exact source,
+  // including CriticMarkup and the generated review brief.
+  rawSourceEl.textContent = state.rawMarkdown;
   // Use the shared core: highlighted text is rendered as inline markdown, so a
   // highlight covering **bold**/links/`code` stays one annotation.
   // The brief is for source consumers (especially an LLM); the app already has
@@ -1200,7 +1204,7 @@ function render() {
   contentEl.querySelectorAll('.ann-delete').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (state.mode === 'view') return;
+      if (state.mode !== 'annotate') return;
       deleteAnnotation(parseInt(btn.dataset.annGroup, 10));
     });
   });
@@ -1211,13 +1215,13 @@ function render() {
     el.addEventListener('click', (e) => {
       if (e.target.classList.contains('ann-delete')) return;
       e.stopPropagation();
-      if (state.mode === 'view') return;
+      if (state.mode !== 'annotate') return;
       openEditPopup(parseInt(el.dataset.annGroup, 10), el);
     });
     el.addEventListener('keydown', (e) => {
       if ((e.key === 'Enter' || e.key === ' ') && e.target === el) {
         e.preventDefault();
-        if (state.mode !== 'view') openEditPopup(parseInt(el.dataset.annGroup, 10), el);
+        if (state.mode === 'annotate') openEditPopup(parseInt(el.dataset.annGroup, 10), el);
       }
     });
   });
@@ -1226,7 +1230,7 @@ function render() {
   contentEl.querySelectorAll('.ann-accept').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (state.mode === 'view') return;
+      if (state.mode !== 'annotate') return;
       pushUndo();
       state.rawMarkdown = Core.acceptGroup(state.rawMarkdown, parseInt(btn.dataset.annGroup, 10));
       markDirty();
@@ -1236,7 +1240,7 @@ function render() {
   contentEl.querySelectorAll('.ann-reject').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (state.mode === 'view') return;
+      if (state.mode !== 'annotate') return;
       deleteAnnotation(parseInt(btn.dataset.annGroup, 10));
     });
   });
@@ -1425,6 +1429,7 @@ function updateToolbar() {
   refreshAutoSaveButton();  // its knob/title reflect the open file's type
   $('#btn-export').disabled = noFile;
   $('#btn-mode-toggle').disabled = noFile;
+  $('#btn-raw-toggle').disabled = noFile;
 }
 
 function markDirty() {
@@ -1934,31 +1939,55 @@ $('#btn-rail-toggle').addEventListener('click', () => {
 });
 applyRailCollapsed();
 
-// ── Annotate / View mode ───────────────────────────────────
+// ── Annotate / View / Raw modes ────────────────────────────
+let renderedScrollBeforeRaw = 0;
+let modeBeforeRaw = 'annotate';
 function setMode(mode) {
+  if (mode !== 'annotate' && mode !== 'view' && mode !== 'raw') mode = 'annotate';
+  const previous = state.mode;
+  if (mode === 'raw' && previous !== 'raw') {
+    renderedScrollBeforeRaw = renderedView.scrollTop;
+    modeBeforeRaw = previous;
+  }
   state.mode = mode;
   document.body.classList.toggle('view-mode', mode === 'view');
+  document.body.classList.toggle('raw-mode', mode === 'raw');
   $('#btn-mode-toggle').classList.toggle('on', mode === 'view');
+  $('#btn-mode-toggle').setAttribute('aria-pressed', String(mode === 'view'));
+  $('#btn-raw-toggle').classList.toggle('active', mode === 'raw');
+  $('#btn-raw-toggle').setAttribute('aria-pressed', String(mode === 'raw'));
   contentEl.querySelectorAll('.ann-wrap:not(.ann-edit)').forEach(el => {
-    el.tabIndex = mode === 'view' ? -1 : 0;
-    el.setAttribute('aria-disabled', mode === 'view' ? 'true' : 'false');
+    el.tabIndex = mode === 'annotate' ? 0 : -1;
+    el.setAttribute('aria-disabled', mode === 'annotate' ? 'false' : 'true');
   });
-  if (mode === 'view') {
+  if (mode !== 'annotate') {
     hideAnnotationPopup();
     hideEditPopup();
   }
+  if (mode === 'raw') {
+    $('#ann-nav-list').classList.remove('visible');
+    $('#ann-nav-all').setAttribute('aria-expanded', 'false');
+  }
+  if (previous !== mode) {
+    requestAnimationFrame(() => {
+      renderedView.scrollTop = mode === 'raw' ? 0
+        : previous === 'raw' ? renderedScrollBeforeRaw : renderedView.scrollTop;
+    });
+  }
 }
-function toggleMode() { setMode(state.mode === 'annotate' ? 'view' : 'annotate'); }
+function toggleMode() { setMode(state.mode === 'view' ? 'annotate' : 'view'); }
+function toggleRawMode() { setMode(state.mode === 'raw' ? modeBeforeRaw : 'raw'); }
 $('#btn-mode-toggle').addEventListener('click', toggleMode);
+$('#btn-raw-toggle').addEventListener('click', toggleRawMode);
 
 // Selection → validate → annotation popup (or "unsupported" notice).
 renderedView.addEventListener('mouseup', (e) => {
-  if (state.mode === 'view') return;
+  if (state.mode !== 'annotate') return;
   if (popup.contains(e.target) || editPopup.contains(e.target)) return;
   if (e.target.closest('.ann-comment-badge') || e.target.closest('.ann-delete')) return;
 
   setTimeout(() => {
-    if (!state.fileOpen) return;
+    if (!state.fileOpen || state.mode !== 'annotate') return;
     const selCtx = getSelectionContext();
     if (!selCtx) return;
     const selection = window.getSelection();
@@ -1979,7 +2008,7 @@ renderedView.addEventListener('mouseup', (e) => {
 let pointClickTimer = null;
 renderedView.addEventListener('click', (e) => {
   if (!state.fileOpen) return;
-  if (state.mode === 'view') return;
+  if (state.mode !== 'annotate') return;
   if (popup.contains(e.target) || editPopup.contains(e.target)) return;
   if (e.target.closest('.ann-comment-badge') || e.target.closest('.ann-delete')) return;
 
@@ -2013,6 +2042,7 @@ renderedView.addEventListener('click', (e) => {
   // the selection handler owns it; only a lone caret click drops a point comment.
   clearTimeout(pointClickTimer);
   pointClickTimer = setTimeout(() => {
+    if (state.mode !== 'annotate') return;
     const sel2 = window.getSelection();
     if (!sel2 || !sel2.isCollapsed) return;
     const ctx = getCaretContext(e);
@@ -2143,7 +2173,10 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     pickFile();
   }
-  if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
+    e.preventDefault();
+    toggleRawMode();
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
     e.preventDefault();
     toggleMode();
   }

@@ -47,7 +47,7 @@ The app creates comments. Suggested edits are expected to come from an external 
 - Inline badges that can be edited or deleted without moving feedback into a separate sidebar.
 - A compact annotation navigator with count, previous/next actions, and an overview list.
 - Keyboard-accessible comment and suggested-edit controls.
-- Annotate and read-only View modes (`Ctrl+E`).
+- Annotate, read-only rendered View (`Ctrl+E`), and exact Raw source (`Ctrl+Shift+E`) modes.
 - Up to 50 annotation operations in the undo history (`Ctrl+Z`).
 - Structure checks that refuse an annotation when inserting it would break the Markdown document.
 
@@ -101,6 +101,7 @@ For private repositories, use a PAT with the API access needed to read and updat
 | `Ctrl+O` / `Cmd+O` | Open a file |
 | `Ctrl+S` / `Cmd+S` | Save |
 | `Ctrl+E` / `Cmd+E` | Toggle Annotate / View mode |
+| `Ctrl+Shift+E` / `Cmd+Shift+E` | Toggle exact Raw Markdown source |
 | `Ctrl+Z` / `Cmd+Z` | Undo the last annotation operation |
 | `Ctrl+Enter` / `Cmd+Enter` | Submit the active comment form |
 | `Esc` | Close the active popup or dialog |
