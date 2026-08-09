@@ -1,87 +1,147 @@
 # Markdown Annotator
 
-A browser-only tool for reviewing markdown documents like a proofreader: highlight passages, leave comments, review suggested edits already in a file, and save everything back as [CriticMarkup](https://criticmarkup.com/) that any person or LLM can read and act on.
+[![CI](https://github.com/vrata48/markdown-annotator/actions/workflows/ci.yml/badge.svg)](https://github.com/vrata48/markdown-annotator/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**No server, no build, no install.** Serve the folder from any static host and start annotating files on your own disk.
+Markdown Annotator is a browser-only review tool for Markdown files. Select text, leave comments, review suggested edits, and save the feedback directly into the document as human- and LLM-readable [CriticMarkup](https://criticmarkup.com/).
 
-![Demo — annotating, suggested edits, sidebar, dark mode, export](docs/screenshots/demo.gif)
+There is no application server, app-specific account, build step, or upload pipeline. The runtime is a static HTML/JavaScript app.
 
-## Why
+## Quick start
 
-Reviewing LLM-generated (or human-written) markdown usually means pasting text back and forth. This tool keeps the feedback *in the file*: comments and suggested edits live in the markdown source as plain-text CriticMarkup, so an LLM working in the same folder can read your notes, address them, and rewrite the file — which the annotator picks up and shows you for the next round.
+1. Open the app in Chrome or Edge through a localhost server or an HTTPS host.
+2. Choose **Try a sample document** to explore the UI without granting file access, or choose **Open file**.
+3. Select a passage to comment on it, or click beside text to add a point comment.
+4. Save with **Ctrl+S**. Comments remain inside the Markdown file as CriticMarkup.
 
-## Features
+To run the app locally:
 
-### Commenting
-- **Inline comments** — select any text (a word, a phrase, across paragraphs) and attach a comment; the passage gets an amber highlight with the comment as a badge right beside it. Stored as `{==text==}{>>comment<<}`.
-- **Point comments** — click anywhere in the text to drop a note at that exact spot (`{>>comment<<}`).
-- **Diagram comments** — click a rendered mermaid diagram to comment on the whole diagram.
-- **Structure protection** — spots that can't be annotated without breaking the markdown formatting are refused with a notice; messy selections degrade gracefully to annotating what they can.
-
-### Suggested edits
-- A **replacement** (`{~~old~>new~~}`), **deletion** (`{--gone--}`), or **insertion** (`{++added++}`) written by an LLM (or anyone) directly into the file.
-- Rendered as red strikethrough → green underline with keyboard-accessible **✓ accept / ✗ reject** controls, which rewrite the source accordingly.
-
-### Reviewing
-- **Everything in the document** — comments and suggestions live directly in the text; hover a badge to read a long comment in full, click any highlight to edit it.
-- **Annotation navigator** — count, next/previous controls, and a compact list make long review documents manageable without moving comments out of the text.
-- **Annotate / View modes** (Ctrl+E) — View mode makes the document behave like a normal page: select, copy, click without popups; annotations stay visible but read-only.
-- **Undo** (Ctrl+Z) — reverts annotation operations, 50 steps deep.
-
-### Files
-- **Real local files** — opens and saves directly to your disk via the File System Access API. Local file contents are not uploaded.
-- **Sample document** — try selection, comments, tables, code, Mermaid, and suggested-edit review before granting file access; save it as a new local file if you want to keep it.
-- **Drag & drop** a `.md` anywhere on the page to open it.
-- **Folder mode** — open a directory; a sidebar lists every markdown file in the tree.
-- **GitLab mode** — open a markdown file straight from a GitLab repo (gitlab.com or self-hosted, personal access token, browser-to-GitLab only — no middleman server). Slash-containing branch names are supported. Tokens stay in tab memory unless you explicitly choose **Remember this token on this device**. Saving commits to the branch you opened from, with conflict detection if the file changed remotely; the watcher polls for new commits just like it watches local files.
-- **Recent files** — one click away in the Open file dropdown; the last file reopens automatically after a page refresh (new tabs start clean).
-- **Auto-save** — optional: local files save themselves ~1.5 s after your last change (GitLab files stay manual, so every commit is deliberate).
-- **Disk watching** — the app notices when the open file changes on disk (an LLM rewriting it, another editor saving). Default: a banner offers to reload. Flip the **Auto-reload** toggle in the left rail to have clean files reload silently; conflicting unsaved changes always warn first.
-
-### Comfort
-- **Dark mode** (🌙, follows system preference), **installable as a PWA** (registers as a `.md` handler; installed apps also get persistent file permissions, so restores are silent), **mermaid diagrams** rendered inline with right-click copy/download as image, **code highlighting** via highlight.js.
-
-## The LLM workflow
-
-1. Open the doc and mark it up with comments for questions or requested fixes.
-2. Save (Ctrl+S). The CriticMarkup is now in the file.
-3. Point your LLM (Claude Code, etc.) at the file: *"address the CriticMarkup comments"*. The markup format is plain text and self-explanatory.
-4. The LLM edits the file; the annotator sees the disk change and reloads (or offers to).
-5. Review its suggested edits with ✓ / ✗. Repeat.
-
-## Keyboard shortcuts
-
-| Key | Action |
-| --- | ------ |
-| Ctrl+O | Open file |
-| Ctrl+S | Save |
-| Ctrl+E | Toggle Annotate / View mode |
-| Ctrl+Z | Undo last annotation change |
-| Esc | Close popup / menu |
-
-## Requirements
-
-A Chromium browser (Chrome or Edge) — the File System Access API is not available in Firefox/Safari.
-
-## Run
-
-Any static file server, e.g.:
-
-```
+```sh
 python -m http.server 8038
 ```
 
-then open http://localhost:8038. (The File System Access API doesn't work from `file://` pages, so serve it.)
+Then open `http://localhost:8038`. Do not open `index.html` through `file://`; the File System Access API requires a secure context such as localhost or HTTPS.
 
-## Development
+## What it stores
 
-- `index.html` — markup + styles (design tokens in `:root`, dark set under `:root[data-theme="dark"]`).
-- `app.js` — browser integration (file I/O, rendering, dialogs, and UI).
+Comments and suggested edits are plain text in the document:
+
+```md
+{==A passage under review==}{>>Explain this claim.<<}
+
+{>>A point comment.<<}
+
+{~~original wording~>suggested wording~~}
+{--suggested deletion--}
+{++suggested insertion++}
+```
+
+The app creates comments. Suggested edits are expected to come from an external writer, collaborator, or LLM; the app renders them and provides **Accept** and **Reject** controls.
+
+## Features
+
+### Commenting and review
+
+- Inline comments on words, formatted text, table cells, and multi-paragraph selections.
+- Point comments at a cursor position and whole-diagram comments on Mermaid blocks.
+- Inline badges that can be edited or deleted without moving feedback into a separate sidebar.
+- A compact annotation navigator with count, previous/next actions, and an overview list.
+- Keyboard-accessible comment and suggested-edit controls.
+- Annotate and read-only View modes (`Ctrl+E`).
+- Up to 50 annotation operations in the undo history (`Ctrl+Z`).
+- Structure checks that refuse an annotation when inserting it would break the Markdown document.
+
+### Markdown rendering
+
+- Tables, lists, block quotes, links, fenced code, and syntax highlighting.
+- Mermaid diagrams rendered inline, with image/SVG copy and PNG download actions.
+- CriticMarkup-looking text inside fenced, inline, and indented code remains literal code.
+- Raw HTML in Markdown is intentionally rendered as text, not executed.
+
+### Local files
+
+- Direct open and save through Chromium's File System Access API.
+- Drag and drop for `.md`, `.markdown`, `.mdx`, and `.txt` files.
+- Folder browsing with an explicit notice if the safety limits of 500 files or six nested directory levels are reached.
+- Recent-file history stored locally in IndexedDB.
+- External-change detection, optional auto-reload, and conflict warnings for unsaved work.
+- Optional debounced auto-save for local files. Permission prompts only happen during a manual save.
+
+### GitLab
+
+- Open a repository file by pasting its GitLab blob URL.
+- Supports `gitlab.com`, self-hosted instances, nested project paths, and branch names containing slashes.
+- Commit to the current branch or create an annotation branch with an optional merge request.
+- Optimistic locking and remote-change polling reduce accidental overwrites.
+- Personal access tokens are isolated per GitLab instance and remain in tab memory by default. Persistent device storage requires explicit **Remember this token on this device** consent.
+
+For private repositories, use a PAT with the API access needed to read and update repository files. A self-hosted GitLab instance must allow browser API requests from the app's origin through CORS.
+
+## Privacy and security
+
+- Local document contents are read from and written to the selected file handle; they are not uploaded by the app.
+- GitLab mode sends repository requests directly from the browser to the selected GitLab instance. There is no intermediary backend.
+- Markdown raw HTML is disabled, and the app ships a restrictive Content Security Policy.
+- Markdown rendering libraries are pinned to specific CDN versions; classic scripts and styles use integrity hashes where the browser supports them.
+- Remembered GitLab tokens use site-local browser storage. Only enable this option on a private device and preferably deploy the app on a dedicated origin.
+
+## Current limitations
+
+- Chrome or Edge is required for the supported local-file workflow. Firefox and Safari do not provide the required File System Access API.
+- The app reviews suggested edits but does not create them through the UI.
+- Comments cannot be nested inside existing annotations.
+- CriticMarkup inside code is deliberately treated as literal content.
+- GitLab access depends on the target instance's API permissions and CORS configuration.
+- Folder mode intentionally stops after 500 Markdown files and skips content deeper than six directory levels.
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+O` / `Cmd+O` | Open a file |
+| `Ctrl+S` / `Cmd+S` | Save |
+| `Ctrl+E` / `Cmd+E` | Toggle Annotate / View mode |
+| `Ctrl+Z` / `Cmd+Z` | Undo the last annotation operation |
+| `Ctrl+Enter` / `Cmd+Enter` | Submit the active comment form |
+| `Esc` | Close the active popup or dialog |
+
+## Typical LLM workflow
+
+1. Open a document and add comments describing questions or requested changes.
+2. Save the file so the CriticMarkup becomes part of its source.
+3. Ask an LLM working in the same repository to address the CriticMarkup comments and optionally express proposed changes as CriticMarkup suggestions.
+4. Let the annotator reload the externally modified file, or confirm the reload when prompted.
+5. Review the result and accept or reject suggested edits. Repeat as needed.
+
+## Project structure
+
+- `index.html` — application markup, design tokens, and component styles.
+- `app.js` — browser integration, file I/O, rendering, dialogs, recents, and UI behavior.
 - `app-helpers.js` — browser-independent GitLab URL, source-mapping, and navigator helpers.
-- `annotator-core.js` — the CriticMarkup engine: parsing, group model, accept/reject, structure-preserving insertion. Pure functions, no DOM — also loads in Node.
-- Unit tests: `node --test "tests/*.test.js"`.
-- Browser tests: install the CI-only dependencies with `npm install --no-save --no-package-lock playwright@1.55.0 markdown-it@14.1.0 mermaid@11.16.0`, run `npx playwright install chromium`, then `node tests/browser-e2e.cjs`. CI drives selection, keyboard controls, sample onboarding/save, PAT privacy, dialogs, OPFS persistence, and Mermaid in real Chromium.
+- `annotator-core.js` — CriticMarkup parsing, grouping, mutation semantics, and structure-preserving insertion.
+- `mermaid-init.js` — pinned Mermaid module initialization.
+- `tests/` — Node unit tests and the real Chromium end-to-end harness.
+
+The production app remains build-free and has no runtime package installation.
+
+## Testing
+
+Run the Node tests:
+
+```sh
+node --test "tests/*.test.js"
+```
+
+For the Chromium end-to-end test, install the CI-only dependencies without adding them to the project manifest:
+
+```sh
+npm install --no-save --no-package-lock playwright@1.55.0 markdown-it@14.1.0 mermaid@11.16.0
+npx playwright install chromium
+node tests/browser-e2e.cjs
+```
+
+CI runs both suites for pull requests and pushes to `main`.
 
 ## License
 
-MIT
+[MIT](LICENSE)
