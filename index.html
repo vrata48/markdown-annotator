@@ -265,7 +265,7 @@ body.rail-collapsed #rail a.icon-btn:focus-visible::after {
 
 /* Folder file list — docks between the rail and the document */
 #file-sidebar {
-  width: 240px;
+  width: var(--folder-sidebar-width, 240px);
   flex-shrink: 0;
   display: none;
   flex-direction: column;
@@ -273,6 +273,31 @@ body.rail-collapsed #rail a.icon-btn:focus-visible::after {
   background: var(--desk-deep);
 }
 #file-sidebar.visible { display: flex; }
+#file-sidebar-grip {
+  position: relative;
+  display: none;
+  width: 9px;
+  flex: 0 0 9px;
+  margin-left: -4px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  z-index: 3;
+}
+#file-sidebar.visible + #file-sidebar-grip { display: block; }
+#file-sidebar-grip::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+}
+#file-sidebar-grip:hover::after,
+#file-sidebar-grip.dragging::after,
+#file-sidebar-grip:focus-visible::after { width: 2px; left: 3.5px; background: var(--pen); }
+#file-sidebar-grip:focus-visible { outline: none; }
 #file-sidebar header {
   display: flex;
   align-items: center;
@@ -1222,6 +1247,9 @@ body.view-mode #rendered-view .content { cursor: auto; }
     </header>
     <div id="file-list"></div>
   </div>
+  <div id="file-sidebar-grip" role="separator" aria-orientation="vertical"
+       aria-label="Resize file list" aria-valuemin="180" aria-valuemax="520"
+       tabindex="0" title="Resize file list"></div>
   <div id="rendered-view">
     <div id="doc-col">
       <div id="file-tab">
@@ -1368,6 +1396,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=44"></script>
+<script src="app.js?v=45"></script>
 </body>
 </html>

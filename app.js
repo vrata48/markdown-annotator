@@ -361,7 +361,74 @@ function scheduleAutoSave() {
 
 // ── Folder mode: browse a directory of markdown files ──────
 const fileSidebar = $('#file-sidebar');
+const fileSidebarGrip = $('#file-sidebar-grip');
 let folder = null;  // { name, files: [{path, handle}], currentPath }
+
+// ── Folder file-list resizing ─────────────────────────────
+const FOLDER_SIDEBAR_MIN = 180;
+const FOLDER_SIDEBAR_MAX = 520;
+const FOLDER_SIDEBAR_DEFAULT = 240;
+const FOLDER_SIDEBAR_STORAGE_KEY = 'folder-sidebar-width';
+
+function clampFolderSidebarWidth(width) {
+  const max = Math.min(FOLDER_SIDEBAR_MAX, Math.max(FOLDER_SIDEBAR_MIN, window.innerWidth * 0.5));
+  return Math.round(Math.max(FOLDER_SIDEBAR_MIN, Math.min(max, width)));
+}
+
+function setFolderSidebarWidth(width, persist = true) {
+  const value = clampFolderSidebarWidth(width);
+  fileSidebar.style.setProperty('--folder-sidebar-width', value + 'px');
+  fileSidebarGrip.setAttribute('aria-valuenow', String(value));
+  if (persist) {
+    try { localStorage.setItem(FOLDER_SIDEBAR_STORAGE_KEY, String(value)); } catch (_) {}
+  }
+}
+
+function initFolderSidebarResize() {
+  let saved = NaN;
+  try { saved = Number(localStorage.getItem(FOLDER_SIDEBAR_STORAGE_KEY)); } catch (_) {}
+  setFolderSidebarWidth(Number.isFinite(saved) && saved > 0 ? saved : FOLDER_SIDEBAR_DEFAULT, false);
+
+  fileSidebarGrip.addEventListener('dblclick', () => setFolderSidebarWidth(FOLDER_SIDEBAR_DEFAULT));
+  fileSidebarGrip.addEventListener('keydown', (e) => {
+    const current = parseFloat(getComputedStyle(fileSidebar).width) || FOLDER_SIDEBAR_DEFAULT;
+    const step = e.shiftKey ? 64 : 16;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      setFolderSidebarWidth(current + (e.key === 'ArrowRight' ? step : -step));
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setFolderSidebarWidth(FOLDER_SIDEBAR_MIN);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setFolderSidebarWidth(FOLDER_SIDEBAR_MAX);
+    }
+  });
+  fileSidebarGrip.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = fileSidebar.getBoundingClientRect().width;
+    fileSidebarGrip.setPointerCapture(e.pointerId);
+    fileSidebarGrip.classList.add('dragging');
+    document.body.classList.add('col-resizing');
+    const onMove = (ev) => setFolderSidebarWidth(startWidth + ev.clientX - startX, false);
+    const onUp = () => {
+      fileSidebarGrip.classList.remove('dragging');
+      document.body.classList.remove('col-resizing');
+      fileSidebarGrip.removeEventListener('pointermove', onMove);
+      fileSidebarGrip.removeEventListener('pointerup', onUp);
+      fileSidebarGrip.removeEventListener('pointercancel', onUp);
+      const width = parseFloat(getComputedStyle(fileSidebar).width) || FOLDER_SIDEBAR_DEFAULT;
+      setFolderSidebarWidth(width);
+    };
+    fileSidebarGrip.addEventListener('pointermove', onMove);
+    fileSidebarGrip.addEventListener('pointerup', onUp);
+    fileSidebarGrip.addEventListener('pointercancel', onUp);
+  });
+  window.addEventListener('resize', () => setFolderSidebarWidth(parseFloat(getComputedStyle(fileSidebar).width) || FOLDER_SIDEBAR_DEFAULT, false));
+}
+
+initFolderSidebarResize();
 
 async function pickFolder() {
   if (typeof window.showDirectoryPicker !== 'function') return;
