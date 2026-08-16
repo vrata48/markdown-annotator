@@ -154,7 +154,14 @@ async function openHandle(handle, opts) {
   try {
     // Read-only here: asking for readwrite at open time makes Chrome show a
     // confusing "Save changes to file?" prompt. Write access is requested on
-    // the first actual save, where the prompt matches the user's intent.
+    // the first actual save, where the prompt matches the user's intent —
+    // except when auto-save is on: its timer has no user gesture for the
+    // prompt, so the open gesture must secure write access up front.
+    if (getAutoSave() && !silent &&
+        await handle.queryPermission({ mode: 'readwrite' }) !== 'granted') {
+      // Denied write still falls through to a plain read-only open below.
+      try { await handle.requestPermission({ mode: 'readwrite' }); } catch (_) {}
+    }
     if (await handle.queryPermission({ mode: 'read' }) !== 'granted' &&
         await handle.requestPermission({ mode: 'read' }) !== 'granted') {
       if (!silent) showNotice('File access was not granted.');
@@ -171,34 +178,40 @@ async function openHandle(handle, opts) {
     state.diskMoved = false;
     state.fileOpen = true;
     state.lastModified = file.lastModified;
+    autoSaveBlockedNotified = false;
     clearUndo();
     render();
     recordRecent({ handle, name: handle.name });
     startWatch();
-    // Refresh restores the file silently; a fresh tab starts on the welcome
-    // screen. sessionStorage survives reload but not new tabs — exactly that.
-    try { sessionStorage.setItem('had-file', '1'); } catch (_) {}
+    // Refresh restores this tab's file silently; a fresh tab (no tab id in
+    // sessionStorage) starts on the welcome screen.
+    recordSession({ handle, name: handle.name });
   } catch (e) {
     if (e && e.name === 'AbortError') return;
     if (!silent) showAppAlert('Failed to open file: ' + e.message, 'Could not open file');
   }
 }
 
-// After a page refresh, reopen the last file if permission survived (it
+// After a page refresh, reopen THIS TAB's file if permission survived (it
 // usually drops back to 'prompt' on reload, and requestPermission needs a
 // user gesture). When it didn't survive, the recents list covers reopening.
 async function tryRestoreLast() {
   if (!FS_SUPPORTED || state.fileOpen) return;
-  let wasRefresh = false;
-  try { wasRefresh = sessionStorage.getItem('had-file') === '1'; } catch (_) {}
-  if (!wasRefresh) return;
-  const rec = await fetchRecent();
-  if (!rec.length) return;
-  const last = rec[0];
+  let last = await fetchSession();
+  if (!last) {
+    // Pre-session-store tabs only carried a 'had-file' flag — fall back to
+    // the newest recent once; the reopen records a proper session entry.
+    let legacy = false;
+    try { legacy = sessionStorage.getItem('had-file') === '1'; } catch (_) {}
+    if (!legacy) return;
+    last = (await fetchRecent())[0];
+    if (!last) return;
+  }
   if (last.remote) {  // token needs no user gesture — reopen silently
     await openGitLabFile(last.remote, { silent: true });
     return;
   }
+  if (!last.handle) return;
   try {
     if (await last.handle.queryPermission({ mode: 'read' }) === 'granted') {
       await openHandle(last.handle, { silent: true });
@@ -337,15 +350,22 @@ function refreshAutoSaveButton() {
     : 'Auto-save local files shortly after each change: ' + (on ? 'on' : 'off');
   btn.classList.toggle('on', on && !state.remote);
 }
-$('#btn-autosave').addEventListener('click', () => {
-  setFlag('auto-save', !getAutoSave());
+$('#btn-autosave').addEventListener('click', async () => {
+  const on = !getAutoSave();
+  setFlag('auto-save', on);
   refreshAutoSaveButton();
   updateToolbar();
+  // Turning it on IS a user gesture — grab write permission now, because the
+  // gesture-less timer never can (it would silently stay dirty until a manual save).
+  if (on && state.fileHandle && !state.remote) {
+    try { await state.fileHandle.requestPermission({ mode: 'readwrite' }); } catch (_) {}
+  }
   scheduleAutoSave();  // turned on with unsaved changes → save them; off → cancels the pending save
 });
 refreshAutoSaveButton();
 
 let autoSaveTimer = null;
+let autoSaveBlockedNotified = false;  // one notice per document, reset on open
 function cancelAutoSave() { clearTimeout(autoSaveTimer); autoSaveTimer = null; }
 function scheduleAutoSave() {
   cancelAutoSave();
@@ -670,7 +690,7 @@ async function openGitLabFile(desc, opts) {
     render();
     recordRecent({ remote: state.remote, name: state.displayPath });
     startWatch();
-    try { sessionStorage.setItem('had-file', '1'); } catch (_) {}
+    recordSession({ remote: state.remote, name: state.displayPath });
     showNotice('Opened ' + state.fileName + ' from GitLab (' + desc.branch + ')', 'ok');
   } catch (e) {
     hideProgress();
@@ -922,13 +942,16 @@ document.addEventListener('mousedown', (e) => {
 // themselves (they are structured-cloneable) and re-request permission on use.
 const IDB_NAME = 'md-annotator';
 const IDB_STORE = 'recents';
+const IDB_SESSION = 'sessions';  // per-tab "what THIS tab had open", keyed by tab id
 const MAX_RECENT = 10;
 
 function idbOpen() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 1);
+    const req = indexedDB.open(IDB_NAME, 2);
     req.onupgradeneeded = () => {
-      req.result.createObjectStore(IDB_STORE, { keyPath: 'id', autoIncrement: true });
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE, { keyPath: 'id', autoIncrement: true });
+      if (!db.objectStoreNames.contains(IDB_SESSION)) db.createObjectStore(IDB_SESSION);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -982,6 +1005,69 @@ async function recordRecent(entry) {
     await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
     db.close();
   } catch (e) { /* recents are best-effort */ }
+}
+
+// ── Per-tab session (refresh-restore) ──────────────────────
+// Each tab restores ITS OWN file after a refresh — two tabs with two documents
+// must not both reopen the globally most recent one. sessionStorage survives
+// reload but is per-tab and absent in new tabs: a random tab id there keys a
+// record in IndexedDB (handles aren't storable in sessionStorage itself).
+function tabId(create) {
+  try {
+    let id = sessionStorage.getItem('tab-id');
+    if (!id && create) {
+      id = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+      sessionStorage.setItem('tab-id', id);
+    }
+    return id;
+  } catch (_) { return null; }
+}
+
+async function recordSession(entry) {
+  const id = tabId(true);
+  if (!id) return;
+  try {
+    const db = await idbOpen();
+    // Read-then-write in separate transactions (auto-commit while awaiting);
+    // both read requests are issued before awaiting so the tx stays alive.
+    const ro = db.transaction(IDB_SESSION).objectStore(IDB_SESSION);
+    const keysReq = ro.getAllKeys(), rowsReq = ro.getAll();
+    const keys = await idbRequest(keysReq);
+    const rows = await idbRequest(rowsReq);
+    // Prune rows left behind by tabs that closed for good.
+    const cutoff = Date.now() - 30 * 864e5;
+    const stale = keys.filter((k, i) => k !== id && (!rows[i] || rows[i].ts < cutoff));
+    const tx = db.transaction(IDB_SESSION, 'readwrite');
+    const store = tx.objectStore(IDB_SESSION);
+    for (const k of stale) store.delete(k);
+    store.put({ handle: entry.handle || null, remote: entry.remote || null, name: entry.name, ts: Date.now() }, id);
+    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+    db.close();
+  } catch (_) { /* best-effort, like recents */ }
+}
+
+async function fetchSession() {
+  const id = tabId(false);
+  if (!id) return null;
+  try {
+    const db = await idbOpen();
+    const rec = await idbRequest(db.transaction(IDB_SESSION).objectStore(IDB_SESSION).get(id));
+    db.close();
+    return rec || null;
+  } catch (_) { return null; }
+}
+
+async function clearSession() {
+  const id = tabId(false);
+  try { sessionStorage.removeItem('tab-id'); sessionStorage.removeItem('had-file'); } catch (_) {}
+  if (!id) return;
+  try {
+    const db = await idbOpen();
+    const tx = db.transaction(IDB_SESSION, 'readwrite');
+    tx.objectStore(IDB_SESSION).delete(id);
+    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+    db.close();
+  } catch (_) {}
 }
 
 async function clearRecents() {
@@ -1091,8 +1177,15 @@ async function saveFile(opts) {
     } else {
       if (auto) {
         // A timer has no user gesture for the permission prompt: only proceed
-        // once a manual save has granted write access; until then stay dirty quietly.
-        if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted') return;
+        // once a manual save has granted write access; until then stay dirty,
+        // but tell the user once instead of leaving the dot a mystery.
+        if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted') {
+          if (!autoSaveBlockedNotified) {
+            autoSaveBlockedNotified = true;
+            showNotice('Auto-save needs write access — save once with Ctrl+S to grant it.', 'info');
+          }
+          return;
+        }
         // The watcher only polls every 3s (and not while hidden) — catch an
         // external write that landed in the gap instead of clobbering it.
         const onDisk = await handle.getFile();
@@ -1167,7 +1260,7 @@ async function closeFile() {
   setMode('annotate');
   if (folder) { folder.currentPath = null; renderFileSidebar(); }
   // A refresh after closing should land on the welcome screen, not reopen.
-  try { sessionStorage.removeItem('had-file'); } catch (_) {}
+  clearSession();
   updateToolbar();
   refreshWelcomeRecent();
 }
