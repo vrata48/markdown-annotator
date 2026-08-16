@@ -610,8 +610,10 @@
     const lead = src.slice(s, e).match(/^(\s*(?:#{1,6}\s+|[-*+]\s+|\d+\.\s+|>\s?)*)/);
     let a = s + (lead ? lead[0].length : 0);
     let b = e;
-    while (b > a && /\s/.test(src[b - 1])) b--;
-    while (a < b && /\s/.test(src[a])) a++;
+    // An unescaped | at either edge is table-row structure, not content —
+    // wrapping it in {==…==} would break the table into different columns.
+    while (b > a && (/\s/.test(src[b - 1]) || (src[b - 1] === '|' && src[b - 2] !== '\\'))) b--;
+    while (a < b && (/\s/.test(src[a]) || (src[a] === '|' && src[a - 1] !== '\\'))) a++;
     return [a, b];
   }
 
@@ -719,9 +721,12 @@
       if (wordSegs.length) cands.push({ kind: 'word+block', inserts: wordSegs.concat(blocks) });
       cands.push({ kind: 'block', inserts: blocks });
     } else {
-      // Contiguous whole-range first (nicest) — boundaries snapped out of any
-      // emphasis span — then per-block, then per-word as a last resort.
-      const [es, ee] = expandToBalanced(src, target.start, target.end);
+      // Contiguous whole-range first (nicest) — boundaries trimmed of block
+      // and table chrome (a sloppy boundary match can include a cell's ` | `),
+      // then snapped out of any emphasis span — then per-block, then per-word
+      // as a last resort.
+      const [ts, te] = trimToContent(src, target.start, target.end);
+      const [es, ee] = te > ts ? expandToBalanced(src, ts, te) : [target.start, target.end];
       cands.push({ kind: 'inline', inserts: [{ type: 'pair', start: es, end: ee }] });
       if (es !== target.start || ee !== target.end) {
         cands.push({ kind: 'inline', inserts: [{ type: 'pair', start: target.start, end: target.end }] });

@@ -348,3 +348,26 @@ test('analyzeTarget: splits a multi-paragraph CJK selection', () => {
   assert.equal(result.kind, 'split');
   assert.equal(result.inserts.length, 2);
 });
+
+test('analyzeTarget: table-cell range sheds edge pipes instead of fragmenting', () => {
+  // A boundary-mapped selection can slop over a cell edge and include ` | `;
+  // wrapping the pipe would break the table, and the old fallback chain then
+  // fragmented the cell into per-word highlights.
+  const src = '| a | b |\n| --- | --- |\n| -50 | **pozor: data** — zbytek poznámky |\n';
+  const start = src.indexOf(' | **pozor');
+  const end = src.indexOf('\n', start);  // range ends with the trailing ' |'
+  const result = Core.analyzeTarget(src, { type: 'range', start, end });
+  assert.equal(result.kind, 'inline');
+  assert.equal(result.inserts.length, 1);
+  assert.equal(src.slice(result.inserts[0].start, result.inserts[0].end),
+    '**pozor: data** — zbytek poznámky');
+});
+
+test('trimToContent edges: escaped pipes are content, not table structure', () => {
+  const src = '| x | a \\| b |\n| --- | --- |\n| 1 | c |\n';
+  const start = src.indexOf('a \\|');
+  const end = start + 'a \\| b'.length;
+  const result = Core.analyzeTarget(src, { type: 'range', start, end });
+  assert.equal(result.kind, 'inline');
+  assert.equal(src.slice(result.inserts[0].start, result.inserts[0].end), 'a \\| b');
+});
