@@ -179,6 +179,7 @@ async function openHandle(handle, opts) {
     state.fileOpen = true;
     state.lastModified = file.lastModified;
     autoSaveBlockedNotified = false;
+    autoSaveBlocked = false;
     clearUndo();
     render();
     recordRecent({ handle, name: handle.name });
@@ -309,6 +310,7 @@ function showDiskBanner(conflict) {
     : 'This file changed ' + where + '.';
   $('#btn-disk-reload').textContent = conflict ? 'Reload (discard mine)' : 'Reload';
   $('#disk-banner').style.display = 'flex';
+  updateToolbar();  // diskMoved re-lights the save button under auto-save
 }
 function hideDiskBanner() { $('#disk-banner').style.display = 'none'; }
 
@@ -358,7 +360,12 @@ $('#btn-autosave').addEventListener('click', async () => {
   // Turning it on IS a user gesture — grab write permission now, because the
   // gesture-less timer never can (it would silently stay dirty until a manual save).
   if (on && state.fileHandle && !state.remote) {
-    try { await state.fileHandle.requestPermission({ mode: 'readwrite' }); } catch (_) {}
+    try {
+      if (await state.fileHandle.requestPermission({ mode: 'readwrite' }) === 'granted') {
+        autoSaveBlocked = false;
+        updateToolbar();
+      }
+    } catch (_) {}
   }
   scheduleAutoSave();  // turned on with unsaved changes → save them; off → cancels the pending save
 });
@@ -366,6 +373,7 @@ refreshAutoSaveButton();
 
 let autoSaveTimer = null;
 let autoSaveBlockedNotified = false;  // one notice per document, reset on open
+let autoSaveBlocked = false;          // auto-save is stalled on write permission — lights the manual save button
 function cancelAutoSave() { clearTimeout(autoSaveTimer); autoSaveTimer = null; }
 function scheduleAutoSave() {
   cancelAutoSave();
@@ -1180,6 +1188,8 @@ async function saveFile(opts) {
         // once a manual save has granted write access; until then stay dirty,
         // but tell the user once instead of leaving the dot a mystery.
         if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted') {
+          autoSaveBlocked = true;
+          updateToolbar();  // light the save button — it's the way out of the stall
           if (!autoSaveBlockedNotified) {
             autoSaveBlockedNotified = true;
             showNotice('Auto-save needs write access — save once with Ctrl+S to grant it.', 'info');
@@ -1207,6 +1217,7 @@ async function saveFile(opts) {
       if (!auto) recordRecent({ handle, name: handle.name });
     }
     state.diskMoved = false;  // a completed save is the deliberate overwrite
+    autoSaveBlocked = false;  // this save proved we can write
     // Only clear dirty if nothing changed while the write was in flight.
     if (state.rawMarkdown === content) {
       state.dirty = false;
@@ -1222,6 +1233,8 @@ async function saveFile(opts) {
     if (state.remote && e.status === 400 && /changed/i.test(e.message)) {
       showDiskBanner(true);
     } else if (auto) {
+      autoSaveBlocked = true;  // stalled — light the save button as the manual way out
+      updateToolbar();
       showNotice('Auto-save failed: ' + e.message);  // a timer must not raise modal alerts
     } else {
       showAppAlert('Save failed: ' + e.message, 'Could not save file');
@@ -1577,10 +1590,12 @@ function updateToolbar() {
   document.body.classList.toggle('file-open', state.fileOpen);
   document.body.classList.toggle('dirty', state.dirty);
   const noFile = !state.fileOpen;
-  // With auto-save on (local files), saving is automatic — the button only
-  // lights up while something is unsaved (covers the first permission-granting
-  // save, and the case where auto-save is quietly waiting for permission).
-  $('#btn-save').disabled = noFile || (autoSaveActive() && !state.dirty);
+  // With auto-save on (local files), saving is automatic — the button stays
+  // dark even while an edit sits in the debounce window (no flicker), and only
+  // lights up when auto-save is stalled with unsaved changes: waiting for write
+  // permission, or refusing to overwrite a disk version that moved under us.
+  $('#btn-save').disabled = noFile ||
+    (autoSaveActive() && !(state.dirty && (autoSaveBlocked || state.diskMoved)));
   // With auto-reload on and nothing unsaved, the watcher already covers manual
   // reloads; the button's only remaining job is "discard my changes".
   $('#btn-refresh').disabled = noFile || state.sample || (getAutoReload() && !state.dirty);
