@@ -10,6 +10,9 @@
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
   ],
+  "protocol_handlers": [
+    { "protocol": "web+mdannotate", "url": "./?blob=%s" }
+  ],
   "file_handlers": [
     {
       "action": ".",

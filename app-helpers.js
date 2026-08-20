@@ -131,12 +131,16 @@
   }
 
   // Deep link: /?blob=<GitLab file URL> asks the app to open that file on
-  // load. Returns the decoded URL or null; pure so the parse is testable.
+  // load. A protocol launch (web+mdannotate:<url>, via the manifest's
+  // protocol_handlers) lands here too — the scheme prefix is stripped so
+  // both spellings resolve to the same URL. Pure so the parse is testable.
   function deepLinkBlobUrl(search) {
     if (!search) return null;
     try {
-      const raw = new URLSearchParams(search).get('blob');
-      return raw && raw.trim() ? raw.trim() : null;
+      let raw = new URLSearchParams(search).get('blob');
+      if (!raw || !raw.trim()) return null;
+      raw = raw.trim().replace(/^web\+mdannotate:\/{0,2}/i, '');
+      return raw || null;
     } catch (_) { return null; }
   }
 

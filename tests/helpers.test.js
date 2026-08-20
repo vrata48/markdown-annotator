@@ -75,3 +75,10 @@ test('deepLinkBlobUrl returns null without a blob param', () => {
   assert.equal(Helpers.deepLinkBlobUrl('?blob='), null);
   assert.equal(Helpers.deepLinkBlobUrl('?blob=%20'), null);
 });
+
+test('deepLinkBlobUrl strips the web+mdannotate protocol prefix', () => {
+  const url = 'https://oxford.awsdev.infor.com/DEPM/sdlc/harness/epm-playbook/-/blob/main/plays/lmf/PB-LMF-001-last-minute-fixes.md';
+  assert.equal(Helpers.deepLinkBlobUrl('?blob=' + encodeURIComponent('web+mdannotate:' + url)), url);
+  assert.equal(Helpers.deepLinkBlobUrl('?blob=' + encodeURIComponent('web+mdannotate://' + url)), url);
+  assert.equal(Helpers.deepLinkBlobUrl('?blob=' + encodeURIComponent('web+mdannotate:')), null);
+});
