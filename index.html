@@ -17,7 +17,7 @@
         integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"
         integrity="sha384-wLhprpjsmjc/XYIcF+LpMxd8yS1gss6jhevOp6F6zhiIoFK6AmHtm4bGKtehTani" crossorigin="anonymous"></script>
-<script src="app-helpers.js?v=1"></script>
+<script src="app-helpers.js?v=4"></script>
 <script src="annotator-core.js?v=12"></script>
 <!-- Mermaid ships as an ES module. Keep the loader external so the CSP can
      block inline scripts and event handlers in untrusted Markdown. -->
@@ -317,26 +317,54 @@ body.rail-collapsed #rail a.icon-btn:focus-visible::after {
 }
 #file-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
 .file-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   width: 100%;
   border: none;
   background: none;
-  padding: 6px 8px;
+  /* directories carry their own twisty; files pad past where it would sit
+     so their icons align with sibling folder icons */
+  padding: 4px 8px 4px calc(8px + var(--depth, 0) * 14px + 18px);
   border-radius: 7px;
   font-size: 13px;
   font-family: var(--font-ui);
   color: var(--ink);
   cursor: pointer;
+  text-align: left;
+}
+.file-item.dir { padding-left: calc(8px + var(--depth, 0) * 14px); }
+.file-item .file-label {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  direction: rtl;   /* ellipsis on the left, filename end visible */
-  text-align: left;
 }
+.file-item .tree-ico,
+.file-item .tree-twisty {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.file-item .tree-ico { color: var(--ink-soft); }
+.file-item.current .tree-ico { color: inherit; }
+.file-item .tree-twisty { transition: transform 0.12s ease; color: var(--ink-soft); }
+.file-item.dir[aria-expanded="true"] .tree-twisty { transform: rotate(90deg); }
 .file-item:hover { background: var(--desk); }
 .file-item.current { background: var(--pen-wash); color: var(--pen); font-weight: 600; }
 .file-empty { padding: 14px; font-size: 12.5px; color: var(--ink-soft); text-align: center; }
-.file-limit-note { margin: 4px 3px 8px; padding: 8px 9px; border: 1px solid var(--warn-border); border-radius: 7px; background: var(--warn-bg); color: var(--red-pen); font-size: 11.5px; line-height: 1.4; }
+.file-tree-empty {
+  padding: 3px 8px 3px calc(8px + var(--depth, 0) * 14px + 18px);
+  font-size: 12px;
+  font-style: italic;
+  color: var(--ink-soft);
+}
 
 
 
@@ -1396,6 +1424,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=47"></script>
+<script src="app.js?v=51"></script>
 </body>
 </html>

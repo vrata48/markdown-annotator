@@ -181,7 +181,7 @@ async function openHandle(handle, opts) {
     autoSaveBlockedNotified = false;
     autoSaveBlocked = false;
     clearUndo();
-    render();
+    render({ fresh: true });
     recordRecent({ handle, name: handle.name });
     startWatch();
     // Refresh restores this tab's file silently; a fresh tab (no tab id in
@@ -390,7 +390,9 @@ function scheduleAutoSave() {
 // ── Folder mode: browse a directory of markdown files ──────
 const fileSidebar = $('#file-sidebar');
 const fileSidebarGrip = $('#file-sidebar-grip');
-let folder = null;  // { name, files: [{path, handle}], currentPath }
+// Lazily loaded tree: a directory's entries are read only when it is first
+// expanded. node = { name, path, kind, handle, children: null|[node], expanded }
+let folder = null;  // { name, root: node, currentPath }
 
 // ── Folder file-list resizing ─────────────────────────────
 const FOLDER_SIDEBAR_MIN = 180;
@@ -462,18 +464,15 @@ async function pickFolder() {
   if (typeof window.showDirectoryPicker !== 'function') return;
   try {
     const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
-    const files = [];
-    const scan = { depthLimited: false, fileLimited: false };
-    await collectMarkdownFiles(dir, '', files, 0, scan);
-    files.sort((a, b) => a.path.localeCompare(b.path));
-    folder = { name: dir.name, files, currentPath: null, scan };
+    const root = { name: dir.name, path: '', kind: 'directory', handle: dir, children: null, expanded: true };
+    await loadFolderNode(root);
+    folder = { name: dir.name, root, currentPath: null };
     renderFileSidebar();
     fileSidebar.classList.add('visible');
-    if (scan.depthLimited || scan.fileLimited) {
-      showNotice('Folder list is partial — open the folder panel for details.', 'info');
+    // A folder whose top level is exactly one markdown file → open it right away.
+    if (root.children.length === 1 && root.children[0].kind !== 'directory') {
+      openFolderFile(root.children[0]);
     }
-    if (!files.length) return;
-    if (files.length === 1) openFolderFile(files[0]);
   } catch (e) {
     if (e && e.name !== 'AbortError') showAppAlert('Failed to open folder: ' + e.message, 'Could not open folder');
   }
@@ -494,22 +493,34 @@ async function openSample() {
   state.diskMoved = false;
   state.fileOpen = true;
   clearUndo();
-  render();
+  render({ fresh: true });
   showNotice('Sample opened — try selecting a passage', 'info');
 }
 
-async function collectMarkdownFiles(dir, prefix, out, depth, scan) {
-  if (depth > 6) { scan.depthLimited = true; return; }
-  if (out.length >= 500) { scan.fileLimited = true; return; }
-  for await (const [name, handle] of dir.entries()) {
-    if (out.length >= 500) { scan.fileLimited = true; break; }
-    if (name.startsWith('.') || name === 'node_modules') continue;
-    if (handle.kind === 'directory') {
-      await collectMarkdownFiles(handle, prefix + name + '/', out, depth + 1, scan);
-    } else if (/\.(md|markdown|mdx|txt)$/i.test(name)) {
-      out.push({ path: prefix + name, handle });
-    }
+// Read one directory's entries on demand. Filtering and ordering live in the
+// pure helper; this just attaches paths and handles.
+async function loadFolderNode(node) {
+  const entries = [];
+  for await (const [name, handle] of node.handle.entries()) {
+    entries.push({ name, kind: handle.kind, handle });
   }
+  node.children = Helpers.folderChildren(entries).map(e => ({
+    name: e.name,
+    path: node.path ? node.path + '/' + e.name : e.name,
+    kind: e.kind,
+    handle: e.handle,
+    children: null,
+    expanded: false,
+  }));
+}
+
+async function toggleFolderNode(node) {
+  if (!node.expanded && node.children === null) {
+    try { await loadFolderNode(node); }
+    catch (e) { showNotice('Could not read folder: ' + e.message); return; }
+  }
+  node.expanded = !node.expanded;
+  renderFileSidebar();
 }
 
 function renderFileSidebar() {
@@ -518,31 +529,51 @@ function renderFileSidebar() {
   $('#folder-name').title = folder.name;
   const list = $('#file-list');
   list.innerHTML = '';
-  if (folder.scan && (folder.scan.depthLimited || folder.scan.fileLimited)) {
-    const note = document.createElement('div');
-    note.className = 'file-limit-note';
-    const reasons = [];
-    if (folder.scan.fileLimited) reasons.push('showing the first 500 markdown files');
-    if (folder.scan.depthLimited) reasons.push('folders deeper than 6 levels skipped');
-    note.textContent = 'Partial list: ' + reasons.join('; ') + '.';
-    list.appendChild(note);
-  }
-  if (!folder.files.length) {
+  if (!folder.root.children.length) {
     const empty = document.createElement('div');
     empty.className = 'file-empty';
-    empty.textContent = folder.scan && (folder.scan.depthLimited || folder.scan.fileLimited)
-      ? 'No markdown files found within the scan limits.'
-      : 'No markdown files in this folder.';
+    empty.textContent = 'No markdown files or subfolders in this folder.';
     list.appendChild(empty);
     return;
   }
-  for (const f of folder.files) {
+  renderFileTreeLevel(folder.root.children, list, 0);
+}
+
+// One flat run of buttons, indented per depth via --depth — full-width rows
+// keep the hover/current background stretching across the panel.
+function renderFileTreeLevel(nodes, list, depth) {
+  for (const n of nodes) {
     const btn = document.createElement('button');
-    btn.className = 'file-item' + (f.path === folder.currentPath ? ' current' : '');
-    btn.textContent = f.path;
-    btn.title = f.path;
-    btn.addEventListener('click', () => openFolderFile(f));
-    list.appendChild(btn);
+    btn.style.setProperty('--depth', depth);
+    btn.title = n.path;
+    if (n.kind === 'directory') {
+      btn.className = 'file-item dir';
+      btn.setAttribute('aria-expanded', String(n.expanded));
+      btn.innerHTML = '<svg class="tree-twisty" viewBox="0 0 18 18" aria-hidden="true"><use href="#i-chev-r"/></svg>' +
+        '<svg class="tree-ico" viewBox="0 0 18 18" aria-hidden="true"><use href="#i-folder"/></svg>' +
+        '<span class="file-label"></span>';
+      btn.querySelector('.file-label').textContent = n.name;
+      btn.addEventListener('click', () => toggleFolderNode(n));
+      list.appendChild(btn);
+      if (n.expanded && n.children) {
+        if (n.children.length) {
+          renderFileTreeLevel(n.children, list, depth + 1);
+        } else {
+          const none = document.createElement('div');
+          none.className = 'file-tree-empty';
+          none.style.setProperty('--depth', depth + 1);
+          none.textContent = 'no markdown files';
+          list.appendChild(none);
+        }
+      }
+    } else {
+      btn.className = 'file-item' + (n.path === folder.currentPath ? ' current' : '');
+      btn.innerHTML = '<svg class="tree-ico" viewBox="0 0 18 18" aria-hidden="true"><use href="#i-file"/></svg>' +
+        '<span class="file-label"></span>';
+      btn.querySelector('.file-label').textContent = n.name;
+      btn.addEventListener('click', () => openFolderFile(n));
+      list.appendChild(btn);
+    }
   }
 }
 
@@ -695,7 +726,7 @@ async function openGitLabFile(desc, opts) {
     state.diskMoved = false;
     state.fileOpen = true;
     clearUndo();
-    render();
+    render({ fresh: true });
     recordRecent({ remote: state.remote, name: state.displayPath });
     startWatch();
     recordSession({ remote: state.remote, name: state.displayPath });
@@ -905,8 +936,22 @@ async function resolveGitLabBranch(parsed, projectId) {
   return null;
 }
 
-// Resolve the link and open the file. A ref that isn't a branch (pinned
-// commit SHA) falls back to the default branch — commits need a branch.
+// Resolve a parsed blob link (project id, real branch) and open the file.
+// A ref that isn't a branch (pinned commit SHA) falls back to the default
+// branch — commits need a branch. onResolved fires between resolution and
+// the open, so the dialog path can dismiss itself at the same moment it
+// always has.
+async function glResolveAndOpen(parsed, onResolved) {
+  const proj = await glApi('/projects/' + encodeURIComponent(parsed.projectPath), null, parsed.base);
+  const resolved = await resolveGitLabBranch(parsed, proj.id);
+  const fallback = Helpers.gitLabRefCandidates(parsed).slice(-1)[0];
+  const branch = resolved ? resolved.ref : proj.default_branch;
+  const path = resolved ? resolved.path : fallback.path;
+  if (!resolved) showNotice('Link does not name a branch — opened "' + branch + '" instead');
+  if (onResolved) onResolved();
+  await openGitLabFile({ base: parsed.base, projectId: proj.id, projectPath: proj.path_with_namespace, branch, path });
+}
+
 async function glOpenFromDialog() {
   const parsed = parseGitLabUrl($('#gl-url').value);
   if (!parsed) {
@@ -916,14 +961,7 @@ async function glOpenFromDialog() {
   glSaveConfig(parsed.base, $('#gl-token').value, $('#gl-remember').checked);
   glSetStatus('Resolving branch and file…');
   try {
-    const proj = await glApi('/projects/' + encodeURIComponent(parsed.projectPath), null, parsed.base);
-    const resolved = await resolveGitLabBranch(parsed, proj.id);
-    const fallback = Helpers.gitLabRefCandidates(parsed).slice(-1)[0];
-    const branch = resolved ? resolved.ref : proj.default_branch;
-    const path = resolved ? resolved.path : fallback.path;
-    if (!resolved) showNotice('Link does not name a branch — opened "' + branch + '" instead');
-    hideGitLabDialog();
-    await openGitLabFile({ base: parsed.base, projectId: proj.id, projectPath: proj.path_with_namespace, branch, path });
+    await glResolveAndOpen(parsed, hideGitLabDialog);
   } catch (e) {
     glSetStatus('GitLab: ' + e.message, true);
   }
@@ -1344,8 +1382,13 @@ function updateAnnotationNavigator() {
   });
 }
 
-function render() {
-  const scrollTop = renderedView.scrollTop;
+// Re-renders keep the reader's place (annotating must not jump the page);
+// opening a *different* document passes {fresh: true} to start at the top.
+function render(opts) {
+  const fresh = !!(opts && opts.fresh);
+  const scrollTop = fresh ? 0 : renderedView.scrollTop;
+  // A new document also invalidates the position remembered for leaving raw mode.
+  if (fresh) renderedScrollBeforeRaw = 0;
   // Keep the generated source-level review brief truthful even when an older
   // annotated file, or an externally edited one, is opened. A changed brief is
   // a real in-memory source change and therefore remains dirty until saved.
@@ -2442,7 +2485,29 @@ if ('launchQueue' in window) {
   });
 }
 
+// Deep link: /?blob=<encoded GitLab file URL> (e.g. a Play Routing Map click)
+// opens that file on load. The param is stripped immediately so a later
+// refresh restores this tab's session instead of re-following the link. A
+// new instance prompts for its token once via the prefilled GitLab dialog.
+async function openDeepLink() {
+  const url = Helpers.deepLinkBlobUrl(location.search);
+  if (!url) return false;
+  history.replaceState(null, '', location.pathname);
+  const parsed = parseGitLabUrl(url);
+  if (!parsed) { showNotice('Deep link is not a GitLab file URL'); return false; }
+  if (!glTokenFor(parsed.base)) {
+    showGitLabDialog();
+    $('#gl-url').value = url;
+    glSyncTokenToUrl();
+    glSetStatus('A token for ' + parsed.base + ' is needed once — paste it and Open.', true);
+    return true;
+  }
+  try { await glResolveAndOpen(parsed); }
+  catch (e) { showAppAlert('Could not open the linked file: ' + e.message, 'Deep link'); }
+  return true;
+}
+
 initTheme();
 updateToolbar();
 refreshWelcomeRecent();
-tryRestoreLast();
+openDeepLink().then((handled) => { if (!handled) tryRestoreLast(); });

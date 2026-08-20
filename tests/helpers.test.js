@@ -30,6 +30,27 @@ test('source mapping handles typography and repeated text context', () => {
   assert.equal(result.start, source.lastIndexOf('"launch"'));
 });
 
+test('folderChildren filters and orders one directory level', () => {
+  const entries = [
+    { name: 'zeta.md', kind: 'file' },
+    { name: 'image.png', kind: 'file' },        // not markdown — dropped
+    { name: '.git', kind: 'directory' },        // hidden — dropped
+    { name: 'node_modules', kind: 'directory' },// dropped
+    { name: 'Notes', kind: 'directory' },
+    { name: 'archive', kind: 'directory' },
+    { name: 'Alpha.MD', kind: 'file' },
+  ];
+  assert.deepEqual(Helpers.folderChildren(entries).map(e => e.name),
+    ['archive', 'Notes', 'Alpha.MD', 'zeta.md']);  // dirs first, case-insensitive
+});
+
+test('folderChildren passes entries through unchanged and handles empty input', () => {
+  assert.deepEqual(Helpers.folderChildren([]), []);
+  assert.deepEqual(Helpers.folderChildren(null), []);
+  const entry = { name: 'a.md', kind: 'file', handle: { fake: true } };
+  assert.equal(Helpers.folderChildren([entry])[0], entry);  // same object, handle intact
+});
+
 test('annotationGroups returns one compact entry per logical group', () => {
   const items = [
     { group: 0, kind: 'highlight', text: 'first' },
@@ -40,4 +61,17 @@ test('annotationGroups returns one compact entry per logical group', () => {
     { group: 0, kind: 'highlight', label: 'One comment' },
     { group: 1, kind: 'sub', label: 'new' },
   ]);
+});
+
+test('deepLinkBlobUrl extracts the blob param', () => {
+  const url = 'https://oxford.awsdev.infor.com/DEPM/sdlc/harness/epm-playbook/-/blob/main/plays/lmf/PB-LMF-001-last-minute-fixes.md';
+  assert.equal(Helpers.deepLinkBlobUrl('?blob=' + encodeURIComponent(url)), url);
+});
+
+test('deepLinkBlobUrl returns null without a blob param', () => {
+  assert.equal(Helpers.deepLinkBlobUrl(''), null);
+  assert.equal(Helpers.deepLinkBlobUrl(null), null);
+  assert.equal(Helpers.deepLinkBlobUrl('?theme=dark'), null);
+  assert.equal(Helpers.deepLinkBlobUrl('?blob='), null);
+  assert.equal(Helpers.deepLinkBlobUrl('?blob=%20'), null);
 });

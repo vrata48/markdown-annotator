@@ -130,6 +130,32 @@
     return candidates[0];
   }
 
+  // Deep link: /?blob=<GitLab file URL> asks the app to open that file on
+  // load. Returns the decoded URL or null; pure so the parse is testable.
+  function deepLinkBlobUrl(search) {
+    if (!search) return null;
+    try {
+      const raw = new URLSearchParams(search).get('blob');
+      return raw && raw.trim() ? raw.trim() : null;
+    } catch (_) { return null; }
+  }
+
+  // Filter and order one directory's entries for the lazily loaded folder
+  // tree: hidden names and node_modules drop out, only directories and
+  // markdown-ish files stay, directories list before files, each group sorted
+  // case-insensitively. Entry objects ({name, kind, ...}) pass through
+  // unchanged so callers keep their handles.
+  function folderChildren(entries) {
+    const byName = (a, b) =>
+      String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }) ||
+      String(a.name).localeCompare(String(b.name));
+    const kept = (entries || []).filter(e => e && e.name &&
+      !String(e.name).startsWith('.') && e.name !== 'node_modules' &&
+      (e.kind === 'directory' || /\.(md|markdown|mdx|txt)$/i.test(e.name)));
+    return kept.filter(e => e.kind === 'directory').sort(byName)
+      .concat(kept.filter(e => e.kind !== 'directory').sort(byName));
+  }
+
   function annotationGroups(items) {
     const byGroup = new Map();
     const groups = [];
@@ -150,11 +176,13 @@
 
   return {
     parseGitLabBlobUrl,
+    deepLinkBlobUrl,
     gitLabRefCandidates,
     normalizeTypography,
     stripMarkdownInline,
     lcsLength,
     findInSource,
     annotationGroups,
+    folderChildren,
   };
 });
