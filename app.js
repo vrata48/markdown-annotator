@@ -1640,8 +1640,11 @@ function updateToolbar() {
   $('#btn-save').disabled = noFile ||
     (autoSaveActive() && !(state.dirty && (autoSaveBlocked || state.diskMoved)));
   // With auto-reload on and nothing unsaved, the watcher already covers manual
-  // reloads; the button's only remaining job is "discard my changes".
-  $('#btn-refresh').disabled = noFile || state.sample || (getAutoReload() && !state.dirty);
+  // reloads; the button's only remaining job is "discard my changes" — and with
+  // auto-save also covering the edit, dirty is transient (the debounce window),
+  // so the button stays dark unless the unsaved state will actually persist.
+  const dirtyLasting = state.dirty && (!autoSaveActive() || autoSaveBlocked || state.diskMoved);
+  $('#btn-refresh').disabled = noFile || state.sample || (getAutoReload() && !dirtyLasting);
   $('#btn-autoreload').disabled = noFile || state.sample;
   $('#btn-autosave').disabled = noFile || !!state.remote || state.sample;  // local files only
   refreshAutoSaveButton();  // its knob/title reflect the open file's type
