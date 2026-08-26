@@ -2272,10 +2272,11 @@ renderedView.addEventListener('click', (e) => {
     if (pos == null) { showNotice('Couldn’t locate the cursor in the source — try clicking next to some text.'); return; }
     const r = Core.analyzeTarget(state.rawMarkdown, { type: 'point', pos }, md);
     if (!r.supported) { showNotice(r.reason || 'Can’t annotate here.'); return; }
-    const preview = r.kind === 'point' ? 'Point comment at cursor'
-      : r.kind === 'block' ? 'Comment on this block'
+    // Only block/line placements need explaining; a plain point comment
+    // lands where the click was, so the label would just repeat the obvious.
+    const preview = r.kind === 'block' ? 'Comment on this block'
       : r.kind === 'line' ? 'Comment on this line'
-      : 'Comment';
+      : '';
     showCommentPopup({ inserts: r.inserts, rect: ctx.rect, preview, caretRect: ctx.rect });
   }, 220);
 });

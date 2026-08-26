@@ -634,33 +634,9 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 .ann-wrap:hover .ann-badge-num, .ann-wrap:focus-within .ann-badge-num, .ann-wrap.ann-current .ann-badge-num {
   border-color: var(--pen);
 }
-/* Point comment (no highlighted passage): a zero-width caret bar marks the
-   exact spot — even mid-word — with the number riding above it. */
-.ann-point .ann-comment-badge {
-  width: 0;
-  height: 1em;
-  margin: 0;
-  vertical-align: text-bottom;
-}
-.ann-point .ann-comment-badge::before {
-  content: "";
-  position: absolute;
-  left: -1px;
-  top: 0.1em;
-  bottom: 0;
-  width: 2px;
-  background: var(--pen);
-  border-radius: 1px;
-}
-.ann-point .ann-badge-num {
-  position: absolute;
-  left: -7px;
-  top: -0.8em;
-  font-size: 10px;
-  line-height: 13px;
-  padding: 0 3px;
-  min-width: 14px;
-}
+/* Point comments (no highlighted passage) use the same ring, sitting in the
+   text flow exactly where the click landed. */
+.ann-point .ann-comment-badge { margin: 0 1px; }
 /* Floating comment card */
 .ann-badge-card {
   display: none;
@@ -685,7 +661,6 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
   white-space: normal;
   cursor: default;
 }
-.ann-point .ann-badge-card { bottom: calc(100% + 14px); }
 .ann-wrap:hover .ann-badge-card, .ann-wrap:focus-within .ann-badge-card, .ann-wrap.ann-current .ann-badge-card { display: flex; }
 .ann-badge-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 /* Keep the hover bridge: the gap between marker and card must not lose :hover */
@@ -1478,6 +1453,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=53"></script>
+<script src="app.js?v=54"></script>
 </body>
 </html>
