@@ -460,15 +460,19 @@
     const fences = protectedCodeRanges(src);
     const items = scanAnnotations(src);
     let out = '', last = 0, i = 0, nonce = 0;
+    // Comment groups are numbered 1..n in document order; the rendered marker
+    // shows the number in place of the comment text.
+    const numByGroup = new Map();
     for (const it of items) {
       if (inAnyRange(it.mStart, fences)) continue; // leave literal inside code fences
+      if ((it.kind === 'pair' || it.kind === 'point') && !numByGroup.has(it.group)) numByGroup.set(it.group, numByGroup.size + 1);
       // Fixed tokens can collide with literal document text, which would make
       // the later split/join render one annotation in multiple locations.
       // Include a nonce and guarantee the token is absent from the source.
       let placeholder;
       do { placeholder = '​ANN' + i + '_' + nonce++ + '​'; }
       while (src.includes(placeholder));
-      placeholders.push({ placeholder, i, kind: it.kind, text: it.text, text2: it.text2, comment: (it.comment || '').trim(), group: it.group });
+      placeholders.push({ placeholder, i, kind: it.kind, text: it.text, text2: it.text2, comment: (it.comment || '').trim(), group: it.group, num: numByGroup.get(it.group) });
       out += src.slice(last, it.mStart) + placeholder;
       last = it.mEnd;
       i++;
@@ -486,13 +490,15 @@
     const g = e.group;
     const attrs = 'data-ann-idx="' + e.i + '" data-ann-group="' + g + '"';
     const editAttrs = attrs + ' tabindex="0" role="group" aria-label="Comment: ' + c + '. Press Enter to edit"';
-    const badge = '<span class="ann-comment-badge" ' + attrs + ' title="' + c + '">';
-    // Text sits in its own span: the badge is a flex container, and CSS
-    // text-overflow only ellipsizes inside a block-level child.
-    const btext = function (t) { return '<span class="ann-badge-text">' + t + '</span>'; };
+    // Marker: a small numbered ring in the line; the comment text lives in a
+    // card that CSS floats above the line on hover/focus (with the delete
+    // control), so a long comment never sits inside the sentence.
     const delBtn = '<button class="ann-delete" data-ann-group="' + g + '" aria-label="Delete comment" title="Delete comment">&times;</button>';
+    const badge = '<span class="ann-comment-badge" ' + attrs + '>' +
+      '<span class="ann-badge-num">' + (e.num || '') + '</span>' +
+      '<span class="ann-badge-card"><span class="ann-badge-text">' + c + '</span>' + delBtn + '</span></span>';
     if (e.kind === 'point') {
-      return '<span class="ann-wrap ann-point" ' + editAttrs + '>' + badge + '&#128172; ' + btext(c) + delBtn + '</span></span>';
+      return '<span class="ann-wrap ann-point" ' + editAttrs + '>' + badge + '</span>';
     }
     if (e.kind === 'del' || e.kind === 'ins' || e.kind === 'sub') {
       // Suggested edit: strike the old text, underline the new; hover reveals
@@ -514,7 +520,7 @@
       // on the group's last block); still offer a hover-× that deletes the group.
       return '<span class="ann-wrap ann-hl" ' + editAttrs + '>' + mark + '<button class="ann-delete ann-delete-hl" data-ann-group="' + g + '" aria-label="Delete comment" title="Delete comment">&times;</button></span>';
     }
-    return '<span class="ann-wrap" ' + editAttrs + '>' + mark + badge + btext(c) + delBtn + '</span></span>';
+    return '<span class="ann-wrap" ' + editAttrs + '>' + mark + badge + '</span>';
   }
 
   // Apply the mermaid fence override to a markdown-it instance (shared config).
@@ -553,6 +559,8 @@
     // before their parent is matched or the parent stops at the wrong </span>.
     h = h.replace(/<button class="ann-(?:delete|accept|reject)[^"]*"[^>]*>[\s\S]*?<\/button>/g, '');
     h = h.replace(/<span class="ann-badge-text">([\s\S]*?)<\/span>/g, '$1');
+    h = h.replace(/<span class="ann-badge-num">[\s\S]*?<\/span>/g, '');
+    h = h.replace(/<span class="ann-badge-card">([\s\S]*?)<\/span>/g, '$1');
     h = h.replace(/<span class="ann-edit-controls">\s*<\/span>/g, '');
     h = h.replace(/<span class="ann-comment-badge[^"]*"[^>]*>[\s\S]*?<\/span>/g, '');
     h = h.replace(/<mark class="ann-highlight">([\s\S]*?)<\/mark>/g, '$1');

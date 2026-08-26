@@ -205,6 +205,22 @@ test('rendered annotations expose keyboard controls and separate substitutions',
   assert.match(sub, /aria-label="Reject suggestion"/);
 });
 
+test('comment groups are numbered in document order and render as markers', () => {
+  const src = 'a {>> first <<} b {== x ==}{>> second <<} c {-- gone --} d {== y ==}{== z ==}{>> third <<}';
+  const { placeholders } = Core.preprocessCriticMarkup(src);
+  const nums = placeholders.map(p => p.num);
+  assert.deepEqual(nums, [1, 2, undefined, undefined, 3]);
+  const md = { render: (s) => s, renderInline: (s) => s };
+  const html = Core.renderAnnotated(md, src);
+  assert.match(html, /<span class="ann-badge-num">1<\/span>/);
+  assert.match(html, /<span class="ann-badge-num">3<\/span>/);
+  assert.equal((html.match(/ann-badge-num/g) || []).length, 3);
+  assert.ok(!html.includes('&#128172;'));
+  // The comment text lives in the floating card, and stripping the UI leaves the plain text.
+  assert.match(html, /<span class="ann-badge-card"><span class="ann-badge-text">second<\/span>/);
+  assert.equal(Core.stripAnnotationHtml(html).replace(/\s+/g, ' ').trim(), 'a b x c gone d yz');
+});
+
 test('preprocess: placeholder cannot collide with literal document text', () => {
   const literal = '​ANN0​';
   const src = literal + ' {== alpha ==}{>> note <<}';

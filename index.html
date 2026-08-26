@@ -18,7 +18,7 @@
 <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"
         integrity="sha384-wLhprpjsmjc/XYIcF+LpMxd8yS1gss6jhevOp6F6zhiIoFK6AmHtm4bGKtehTani" crossorigin="anonymous"></script>
 <script src="app-helpers.js?v=5"></script>
-<script src="annotator-core.js?v=12"></script>
+<script src="annotator-core.js?v=13"></script>
 <!-- Mermaid ships as an ES module. Keep the loader external so the CSP can
      block inline scripts and event handlers in untrusted Markdown. -->
 <script type="module" src="mermaid-init.js?v=1"></script>
@@ -604,43 +604,93 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
   cursor: default;
 }
 
-/* Comments appear directly in the document as badges beside their passage. */
+/* Comments appear in the document as a small numbered ring beside their
+   passage; the comment text floats above the line on hover/focus. */
 .ann-comment-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--pen);
-  color: var(--on-pen);
-  font-size: 11px;
-  font-weight: 500;
-  font-family: var(--font-ui);
-  padding: 1px 8px;
-  border-radius: 10px;
-  margin-left: 4px;
-  cursor: pointer;
-  vertical-align: middle;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: inline-block;
   position: relative;
-  line-height: 1.6;
+  vertical-align: baseline;
+  line-height: 0;
+  margin-left: 2px;
+  cursor: pointer;
 }
-.ann-comment-badge .ann-badge-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
+.ann-badge-num {
+  display: inline-block;
+  position: relative;
+  top: -0.55em;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 15px;
+  padding: 0 4px;
+  min-width: 15px;
+  box-sizing: border-box;
+  text-align: center;
+  color: var(--pen);
+  background: var(--paper);
+  border: 1px solid var(--pen-underline);
+  border-radius: 8px;
 }
-.ann-comment-badge:hover {
-  max-width: none;
-  z-index: 5;
-  background: var(--pen-deep);
+.ann-wrap:hover .ann-badge-num, .ann-wrap:focus-within .ann-badge-num, .ann-wrap.ann-current .ann-badge-num {
+  border-color: var(--pen);
 }
-.ann-comment-badge:hover .ann-badge-text { white-space: normal; }
+/* Point comment (no highlighted passage): a zero-width caret bar marks the
+   exact spot — even mid-word — with the number riding above it. */
+.ann-point .ann-comment-badge {
+  width: 0;
+  height: 1em;
+  margin: 0;
+  vertical-align: text-bottom;
+}
+.ann-point .ann-comment-badge::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 0.1em;
+  bottom: 0;
+  width: 2px;
+  background: var(--pen);
+  border-radius: 1px;
+}
+.ann-point .ann-badge-num {
+  position: absolute;
+  left: -7px;
+  top: -0.8em;
+  font-size: 10px;
+  line-height: 13px;
+  padding: 0 3px;
+  min-width: 14px;
+}
+/* Floating comment card */
+.ann-badge-card {
+  display: none;
+  position: absolute;
+  left: -8px;
+  bottom: calc(100% + 6px);
+  z-index: 6;
+  width: max-content;
+  max-width: min(320px, 70vw);
+  padding: 8px 10px;
+  gap: 8px;
+  align-items: flex-start;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  white-space: normal;
+  cursor: default;
+}
+.ann-point .ann-badge-card { bottom: calc(100% + 14px); }
+.ann-wrap:hover .ann-badge-card, .ann-wrap:focus-within .ann-badge-card, .ann-wrap.ann-current .ann-badge-card { display: flex; }
+.ann-badge-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+/* Keep the hover bridge: the gap between marker and card must not lose :hover */
+.ann-badge-card::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 16px; }
 
-/* Standalone point comments (single-click) — slightly deeper pen. */
-.ann-point .ann-comment-badge { background: var(--pen-deep); }
 /* Whole highlight is clickable → edit */
 .ann-wrap:not(.ann-edit) { cursor: pointer; }
 .ann-wrap:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; border-radius: 3px; }
@@ -649,21 +699,24 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--danger);
-  color: var(--on-pen);
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--danger);
   border: none;
   border-radius: 50%;
-  width: 16px;
-  height: 16px;
-  font-size: 11px;
+  width: 18px;
+  height: 18px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   padding: 0;
-  flex-shrink: 0;
-  opacity: 0.28;
+  opacity: 0.7;
 }
+.ann-delete:hover { opacity: 1; background: var(--del-wash); }
+/* Multi-block highlight blocks carry no marker; their × stays hidden until hover. */
+.ann-delete-hl { opacity: 0; vertical-align: middle; }
+.ann-hl:hover .ann-delete-hl, .ann-hl:focus-within .ann-delete-hl { opacity: 0.7; }
 
-.ann-wrap:hover .ann-delete, .ann-wrap:focus-within .ann-delete { opacity: 1; }
 
 /* Suggested edits ({--del--} {++ins++} {~~old~>new~~}) */
 .ann-del {
@@ -1005,6 +1058,7 @@ body.dragging::after {
 
 /* View mode: annotations visible but inert */
 body.view-mode .ann-delete { display: none !important; }
+body.view-mode .ann-badge-card { padding-right: 10px; }
 body.view-mode .ann-comment-badge, body.view-mode .ann-hl { cursor: default; }
 body.view-mode #rendered-view .content { cursor: auto; }
 
@@ -1424,6 +1478,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=52"></script>
+<script src="app.js?v=53"></script>
 </body>
 </html>
