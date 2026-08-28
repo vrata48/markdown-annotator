@@ -399,6 +399,12 @@ body.rail-collapsed #rail a.icon-btn:focus-visible::after {
   width: fit-content;
 }
 body.file-open #file-tab { display: inline-flex; }
+/* Tabbed PWA: Chrome's own tab strip names the file, so the in-sheet tab would
+   just repeat it one line lower. Close lives on the browser tab too. */
+@media (display-mode: tabbed) {
+  body.file-open #file-tab { display: none; }
+  body.file-open #rendered-view .content { border-top-left-radius: 10px; }
+}
 #file-tab #tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #file-tab .tab-dirty { color: var(--red-pen); font-size: 16px; line-height: 0; display: none; flex-shrink: 0; }
 body.dirty #file-tab .tab-dirty { display: inline; }
@@ -1457,6 +1463,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=54"></script>
+<script src="app.js?v=55"></script>
 </body>
 </html>

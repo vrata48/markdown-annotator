@@ -1629,6 +1629,11 @@ function initCodeCopy() {
 function updateToolbar() {
   tabName.textContent = state.displayPath || state.fileName || 'No file open';
   tabName.title = state.displayPath || state.fileName || '';
+  // In the tabbed PWA the browser's tab strip is the file tab (ours is hidden
+  // by CSS), so the window title carries the file name and the dirty mark.
+  document.title = state.fileOpen
+    ? (state.dirty ? '• ' : '') + (state.fileName || 'Untitled') + ' — Markdown Annotator'
+    : 'Markdown Annotator';
   // body classes drive the chrome: file tab visibility, sheet frame, dirty dots.
   document.body.classList.toggle('file-open', state.fileOpen);
   document.body.classList.toggle('dirty', state.dirty);
