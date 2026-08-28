@@ -4,6 +4,9 @@
   "description": "Review markdown like a proofreader — save comments and resolve suggested edits as CriticMarkup.",
   "start_url": ".",
   "display": "standalone",
+  "display_override": ["tabbed", "standalone"],
+  "tab_strip": { "new_tab_button": { "url": "." } },
+  "launch_handler": { "client_mode": "navigate-new" },
   "background_color": "#E8ECF1",
   "theme_color": "#E8ECF1",
   "icons": [
