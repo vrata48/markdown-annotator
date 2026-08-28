@@ -8,7 +8,7 @@
   "tab_strip": { "new_tab_button": { "url": "." } },
   "launch_handler": { "client_mode": "navigate-new" },
   "background_color": "#E8ECF1",
-  "theme_color": "#E8ECF1",
+  "theme_color": "#C7D0DB",
   "icons": [
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }

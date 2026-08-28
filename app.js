@@ -1631,8 +1631,9 @@ function updateToolbar() {
   tabName.title = state.displayPath || state.fileName || '';
   // In the tabbed PWA the browser's tab strip is the file tab (ours is hidden
   // by CSS), so the window title carries the file name and the dirty mark.
+  // The browser tab is narrow — file name first, app name only when idle.
   document.title = state.fileOpen
-    ? (state.dirty ? '• ' : '') + (state.fileName || 'Untitled') + ' — Markdown Annotator'
+    ? (state.dirty ? '• ' : '') + (state.fileName || 'Untitled')
     : 'Markdown Annotator';
   // body classes drive the chrome: file tab visibility, sheet frame, dirty dots.
   document.body.classList.toggle('file-open', state.fileOpen);
@@ -2125,6 +2126,9 @@ document.addEventListener('mousedown', (e) => {
 // ── Theme (light / dark) ───────────────────────────────────
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
+  // Window frame / tabbed-PWA tab strip: a shade darker than the desk so the
+  // tabs read as tabs instead of blending into the app background.
+  $('meta[name="theme-color"]').setAttribute('content', theme === 'dark' ? '#0C0F13' : '#C7D0DB');
   $('#hljs-light').disabled = theme === 'dark';
   $('#hljs-dark').disabled = theme !== 'dark';
   $('#theme-icon').setAttribute('href', theme === 'dark' ? '#i-sun' : '#i-moon');
