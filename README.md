@@ -67,23 +67,11 @@ The app creates comments. Suggested edits are expected to come from an external 
 - External-change detection, optional auto-reload, and conflict warnings for unsaved work.
 - Optional debounced auto-save for local files. Permission prompts only happen during a manual save.
 
-### GitLab
-
-- Open a repository file by pasting its GitLab blob URL.
-- Supports `gitlab.com`, self-hosted instances, nested project paths, and branch names containing slashes.
-- Commit to the current branch or create an annotation branch with an optional merge request.
-- Optimistic locking and remote-change polling reduce accidental overwrites.
-- Personal access tokens are isolated per GitLab instance and remain in tab memory by default. Persistent device storage requires explicit **Remember this token on this device** consent.
-
-For private repositories, use a PAT with the API access needed to read and update repository files. A self-hosted GitLab instance must allow browser API requests from the app's origin through CORS.
-
 ## Privacy and security
 
 - Local document contents are read from and written to the selected file handle; they are not uploaded by the app.
-- GitLab mode sends repository requests directly from the browser to the selected GitLab instance. There is no intermediary backend.
 - Markdown raw HTML is disabled, and the app ships a restrictive Content Security Policy.
 - Markdown rendering libraries are pinned to specific CDN versions; classic scripts and styles use integrity hashes where the browser supports them.
-- Remembered GitLab tokens use site-local browser storage. Only enable this option on a private device and preferably deploy the app on a dedicated origin.
 
 ## Current limitations
 
@@ -91,7 +79,6 @@ For private repositories, use a PAT with the API access needed to read and updat
 - The app reviews suggested edits but does not create them through the UI.
 - Comments cannot be nested inside existing annotations.
 - CriticMarkup inside code is deliberately treated as literal content.
-- GitLab access depends on the target instance's API permissions and CORS configuration.
 - Folder mode intentionally stops after 500 Markdown files and skips content deeper than six directory levels.
 
 ## Keyboard shortcuts
@@ -120,7 +107,7 @@ The generated review brief is refreshed whenever the file is rendered in Markdow
 
 - `index.html` — application markup, design tokens, and component styles.
 - `app.js` — browser integration, file I/O, rendering, dialogs, recents, and UI behavior.
-- `app-helpers.js` — browser-independent GitLab URL, source-mapping, and navigator helpers.
+- `app-helpers.js` — browser-independent source-mapping, folder, and navigator helpers.
 - `annotator-core.js` — CriticMarkup parsing, grouping, mutation semantics, and structure-preserving insertion.
 - `mermaid-init.js` — pinned Mermaid module initialization.
 - `tests/` — Node unit tests and the real Chromium end-to-end harness.

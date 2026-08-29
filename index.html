@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#C7D0DB">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https: http:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https: http:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https: http:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
 <title>Markdown Annotator</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
@@ -1002,19 +1002,6 @@ body.dragging::after {
 #notice.show { opacity: 1; }
 #notice.notice-ok { background: var(--ok); color: var(--on-pen); }
 #notice.notice-info { background: var(--pen); color: var(--on-pen); }
-#notice.loading::before {
-  content: '';
-  display: inline-block;
-  width: 12px; height: 12px;
-  margin-right: 9px;
-  border: 2px solid rgba(255,255,255,0.35);
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: notice-spin 0.8s linear infinite;
-  vertical-align: -2px;
-}
-@keyframes notice-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { #notice.loading::before { animation: none; } }
 
 /* Diagram right-click menu */
 #diagram-menu {
@@ -1074,7 +1061,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
 }
 #export-menu button:hover { background: var(--bg-secondary); }
 
-/* App dialogs (GitLab open, remote commit) */
+/* App dialogs */
 .app-dialog {
   position: fixed;
   top: 70px;
@@ -1126,9 +1113,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   color: var(--ink-soft);
 }
 .gl-actions { display: flex; align-items: center; gap: 10px; }
-.gl-token-note { margin: -2px 0 2px 22px; color: var(--ink-soft); font-size: 11.5px; line-height: 1.4; }
-#gl-status, #cd-status { flex: 1; font-size: 12px; color: var(--ink-soft); min-height: 15px; }
-#gl-status.gl-error, #cd-status.gl-error { color: var(--danger); }
 .dialog-primary {
   border: none;
   border-radius: 7px;
@@ -1146,13 +1130,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
 .dialog-secondary { border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink); font: 600 12.5px var(--font-ui); padding: 7px 16px; cursor: pointer; }
 #message-dialog p { font-size: 13.5px; line-height: 1.5; color: var(--ink); }
 #message-dialog .gl-actions { justify-content: flex-end; }
-/* Commit dialog specifics */
-.cd-opt { display: flex; align-items: baseline; gap: 8px; font-size: 13px; cursor: pointer; }
-.cd-opt input { accent-color: var(--pen); }
-#cd-other-row { display: flex; flex-direction: column; gap: 8px; margin-left: 22px; }
-#cd-other-row.cd-disabled { opacity: 0.45; pointer-events: none; }
-.cd-mr { display: flex; align-items: baseline; gap: 7px; font-size: 12.5px; color: var(--ink-soft); cursor: pointer; }
-.cd-mr input { accent-color: var(--pen); }
 
 /* Recent files dropdown */
 #recent-menu {
@@ -1277,7 +1254,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
     <g id="i-moon"><path d="M14.6 10.8A5.9 5.9 0 0 1 7.2 3.4a5.9 5.9 0 1 0 7.4 7.4z"/></g>
     <g id="i-sun"><circle cx="9" cy="9" r="3.4"/><path d="M9 1.8v1.9M9 14.3v1.9M1.8 9h1.9M14.3 9h1.9M3.9 3.9l1.35 1.35M12.75 12.75l1.35 1.35M14.1 3.9l-1.35 1.35M5.25 12.75 3.9 14.1"/></g>
     <g id="i-github"><path d="M11.8 15.5v-2.2c0-.7-.2-1.2-.5-1.5 1.7-.2 3.4-.9 3.4-3.7 0-.8-.3-1.5-.8-2 .1-.2.4-1-.1-2 0 0-.6-.2-2.1.8a7 7 0 0 0-3.6 0c-1.5-1-2.1-.8-2.1-.8-.5 1-.2 1.8-.1 2-.5.5-.8 1.2-.8 2 0 2.8 1.7 3.5 3.4 3.7-.2.2-.4.6-.5 1.1-.4.2-1.5.5-2.2-.6-.4-.7-1.1-.8-1.1-.8"/><path d="M6.7 14.2c-.1.5-.1 1-.1 1.3"/></g>
-    <g id="i-tanuki"><path d="M9 15.6 2.6 9l1.7-5.9 2.3 4.6h4.8l2.3-4.6L15.4 9z"/></g>
     <g id="i-zap"><path d="M9.8 2.2 3.9 10h3.7l-1.4 5.8L12.1 8H8.4z"/></g>
     <g id="i-chev-l"><path d="M11 4 6 9l5 5"/></g>
     <g id="i-chev-r"><path d="M7 4l5 5-5 5"/></g>
@@ -1290,7 +1266,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <div class="rail-divider"></div>
   <button id="btn-open" title="Open a markdown file (Ctrl+O)" aria-label="Open file"><svg viewBox="0 0 18 18"><use href="#i-file"/></svg><span>Open file</span></button>
   <button id="btn-open-folder" title="Open a folder of markdown files" aria-label="Open folder"><svg viewBox="0 0 18 18"><use href="#i-folder"/></svg><span>Open folder</span></button>
-  <button id="btn-gitlab" title="Open a markdown file from a GitLab repository" aria-label="Open from GitLab"><svg viewBox="0 0 18 18"><use href="#i-tanuki"/></svg><span>Open GitLab</span></button>
   <button id="btn-recent" title="Recently opened files" aria-label="Recent files"><svg viewBox="0 0 18 18"><use href="#i-history"/></svg><span>Recent</span></button>
   <button id="btn-save" title="Save (Ctrl+S)" aria-label="Save"><svg viewBox="0 0 18 18"><use href="#i-save"/></svg><span>Save</span><span class="rail-dot"></span></button>
   <button id="btn-autosave" title="Auto-save local files shortly after each change" aria-label="Toggle auto-save"><svg viewBox="0 0 18 18"><use href="#i-zap"/></svg><span>Auto-save</span><span class="mode-knob"><span></span></span></button>
@@ -1339,7 +1314,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
             <div class="welcome-mark">&lsaquo;&rsaquo;</div>
             <h2>Markdown Annotator</h2>
           </div>
-          <p class="tagline">Highlight passages and leave comments; review suggested edits already present in the file. Feedback stays as plain-text CriticMarkup, ready for any person or LLM to act on. <span class="local-note">Local file contents stay on your device. GitLab mode contacts only the instance you choose; display libraries load from the pinned CDNs listed in this project.</span></p>
+          <p class="tagline">Highlight passages and leave comments; review suggested edits already present in the file. Feedback stays as plain-text CriticMarkup, ready for any person or LLM to act on. <span class="local-note">File contents stay on your device; only the display libraries load from the pinned CDNs listed in this project.</span></p>
           <div id="browser-warning">This app needs Chrome or Edge &mdash; it opens and saves files on your computer through the File System Access API, which this browser doesn't support.</div>
           <div class="welcome-actions">
             <button id="btn-welcome-open" class="primary" type="button">Open a file</button>
@@ -1394,51 +1369,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
 <!-- Remote commit: pick the branch (and optionally an MR) on first save -->
 <div id="dialog-backdrop"></div>
 
-<div id="commit-dialog" class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="cd-title">
-  <header>
-    <span id="cd-title">Commit to GitLab</span>
-    <button id="cd-close" title="Close" aria-label="Close">&times;</button>
-  </header>
-  <label class="cd-opt">
-    <input type="radio" name="cd-target" id="cd-current" checked>
-    <span>Commit to <b id="cd-branch-name"></b></span>
-  </label>
-  <label class="cd-opt">
-    <input type="radio" name="cd-target" id="cd-other">
-    <span>Commit to another branch</span>
-  </label>
-  <div id="cd-other-row">
-    <input id="cd-branch" type="text" placeholder="annotations/my-review" spellcheck="false">
-    <label class="cd-mr"><input type="checkbox" id="cd-mr" checked> Open a merge request back to <b id="cd-mr-target"></b></label>
-  </div>
-  <div class="gl-actions">
-    <div id="cd-status"></div>
-    <button id="cd-commit" class="dialog-primary">Commit</button>
-  </div>
-</div>
-
-<!-- GitLab: paste a file link + token, nothing else -->
-<div id="gitlab-dialog" class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="gl-title">
-  <header>
-    <span id="gl-title">Open from GitLab</span>
-    <button id="gl-close" title="Close" aria-label="Close">&times;</button>
-  </header>
-  <label class="gl-field">
-    <span>Path</span>
-    <input id="gl-url" type="url" placeholder="https://gitlab.example.com/group/project/-/blob/main/README.md" spellcheck="false">
-  </label>
-  <label class="gl-field">
-    <span>PAT</span>
-    <input id="gl-token" type="password" placeholder="Personal access token (api scope)" spellcheck="false" autocomplete="off">
-  </label>
-  <label class="cd-mr"><input type="checkbox" id="gl-remember"> Remember this token on this device</label>
-  <p class="gl-token-note">Tokens stay in memory by default and disappear when this tab closes. Remembering one stores it for this site origin, so use that only on a private device.</p>
-  <div class="gl-actions">
-    <div id="gl-status"></div>
-    <button id="gl-open" class="dialog-primary">Open</button>
-  </div>
-</div>
-
 <div id="message-dialog" class="app-dialog" role="alertdialog" aria-modal="true" aria-labelledby="message-title" aria-describedby="message-text">
   <header><span id="message-title">Markdown Annotator</span></header>
   <p id="message-text"></p>
@@ -1464,6 +1394,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=56"></script>
+<script src="app.js?v=57"></script>
 </body>
 </html>

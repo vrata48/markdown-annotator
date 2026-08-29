@@ -11,31 +11,6 @@
     try { return decodeURIComponent(value); } catch (_) { return value; }
   }
 
-  // A GitLab blob URL is ambiguous when a branch contains slashes. Preserve
-  // the complete tail here; the app resolves the longest real branch later.
-  function parseGitLabBlobUrl(input) {
-    let url;
-    try { url = new URL(String(input || '').trim()); } catch (_) { return null; }
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
-    const marker = '/-/blob/';
-    const at = url.pathname.indexOf(marker);
-    if (at <= 1) return null;
-    const projectPath = url.pathname.slice(1, at).split('/').map(decodePart).join('/');
-    const tailSegments = url.pathname.slice(at + marker.length).split('/').filter(Boolean).map(decodePart);
-    if (!projectPath || tailSegments.length < 2) return null;
-    return { base: url.origin, projectPath, tailSegments };
-  }
-
-  function gitLabRefCandidates(parsed) {
-    if (!parsed || !Array.isArray(parsed.tailSegments)) return [];
-    const parts = parsed.tailSegments;
-    const out = [];
-    for (let split = parts.length - 1; split >= 1; split--) {
-      out.push({ ref: parts.slice(0, split).join('/'), path: parts.slice(split).join('/') });
-    }
-    return out;
-  }
-
   function normalizeTypography(str) {
     const out = [];
     const map = [];
@@ -130,25 +105,6 @@
     return candidates[0];
   }
 
-  // Deep link: /?blob=<GitLab file URL> asks the app to open that file on
-  // load. A protocol launch (web+mdannotate:<url>, via the manifest's
-  // protocol_handlers) lands here too — the scheme prefix is stripped so
-  // both spellings resolve to the same URL. Pure so the parse is testable.
-  function deepLinkBlobUrl(search) {
-    if (!search) return null;
-    try {
-      let raw = new URLSearchParams(search).get('blob');
-      if (!raw || !raw.trim()) return null;
-      raw = raw.trim().replace(/^web\+mdannotate:\/{0,2}/i, '');
-      return raw || null;
-    } catch (_) { return null; }
-  }
-
-  // Filter and order one directory's entries for the lazily loaded folder
-  // tree: hidden names and node_modules drop out, only directories and
-  // markdown-ish files stay, directories list before files, each group sorted
-  // case-insensitively. Entry objects ({name, kind, ...}) pass through
-  // unchanged so callers keep their handles.
   function folderChildren(entries) {
     const byName = (a, b) =>
       String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }) ||
@@ -179,9 +135,6 @@
   }
 
   return {
-    parseGitLabBlobUrl,
-    deepLinkBlobUrl,
-    gitLabRefCandidates,
     normalizeTypography,
     stripMarkdownInline,
     lcsLength,

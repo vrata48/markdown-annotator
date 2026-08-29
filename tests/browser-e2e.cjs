@@ -106,25 +106,6 @@ async function selectText(page, needle) {
     await suggestion.locator('.ann-accept').press('Enter');
     assert(await page.evaluate(() => state.rawMarkdown.includes('run a small public beta first')), 'keyboard accept did not apply suggestion');
 
-    const patResult = await page.evaluate(() => {
-      glSaveConfig('https://gitlab.example.test', 'test-secret', false);
-      return {
-        token: glTokenFor('https://gitlab.example.test'),
-        stored: JSON.parse(localStorage.getItem('gitlab-tokens') || '{}')['https://gitlab.example.test'],
-      };
-    });
-    assert(patResult.token === 'test-secret' && !patResult.stored, 'default PAT handling persisted the token');
-    const crossInstanceToken = await page.evaluate(() => {
-      showGitLabDialog();
-      const url = document.querySelector('#gl-url');
-      url.value = 'https://another-gitlab.example/group/repo/-/blob/main/README.md';
-      url.dispatchEvent(new Event('input', { bubbles: true }));
-      const value = document.querySelector('#gl-token').value;
-      hideGitLabDialog();
-      return value;
-    });
-    assert(crossInstanceToken === '', 'switching GitLab instances reused another instance token');
-
     const sampleSaved = await page.evaluate(async () => {
       const opfs = await navigator.storage.getDirectory();
       const handle = await opfs.getFileHandle('sample-e2e.md', { create: true });

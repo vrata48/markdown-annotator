@@ -7,9 +7,8 @@ const state = {
   editingIdx: null,
   fileOpen: false,
   fileHandle: null,   // local file (File System Access API), or
-  remote: null,       // GitLab file: { base, projectId, projectPath, branch, path, lastCommitId }
   sample: false,      // in-memory onboarding document; first save asks for a file
-  diskMoved: false,   // the on-disk/remote version changed under us (survives banner dismissal)
+  diskMoved: false,   // the on-disk version changed under us (survives banner dismissal)
   mode: 'annotate',   // 'annotate' | 'view' | 'raw'
 };
 
@@ -79,10 +78,9 @@ $('#message-cancel').addEventListener('click', () => finishMessage(false));
 
 // ── Markdown-it setup ──────────────────────────────────────
 const md = markdownit({
-  // Markdown comes from arbitrary local files and GitLab repositories. Keep
-  // raw HTML inert: rendered content is inserted with innerHTML, and allowing
-  // tags here would let a document execute event-handler JavaScript in the
-  // app's origin (where GitLab tokens are stored).
+  // Markdown comes from arbitrary local files. Keep raw HTML inert: rendered
+  // content is inserted with innerHTML, and allowing tags here would let a
+  // document execute event-handler JavaScript in the app's origin.
   html: false,
   linkify: true,
   typographer: true,
@@ -170,7 +168,6 @@ async function openHandle(handle, opts) {
     const file = await handle.getFile();
     state.rawMarkdown = await file.text();
     state.fileHandle = handle;
-    state.remote = null;
     state.sample = false;
     state.fileName = file.name;
     state.displayPath = file.name;  // real paths are hidden from web pages
@@ -208,10 +205,6 @@ async function tryRestoreLast() {
     last = (await fetchRecent())[0];
     if (!last) return;
   }
-  if (last.remote) {  // token needs no user gesture — reopen silently
-    await openGitLabFile(last.remote, { silent: true });
-    return;
-  }
   if (!last.handle) return;
   try {
     if (await last.handle.queryPermission({ mode: 'read' }) === 'granted') {
@@ -233,12 +226,6 @@ async function pickFile() {
 async function reloadFromDisk() {
   cancelAutoSave();  // a pending save must not race the reload it would undo
   try {
-    if (state.remote) {
-      showProgress('Reloading from GitLab…');
-      await reloadFromGitLab();
-      showNotice('Reloaded from GitLab', 'ok');
-      return;
-    }
     if (!state.fileHandle) return;
     const file = await state.fileHandle.getFile();
     discardPendingEdits();
@@ -251,36 +238,20 @@ async function reloadFromDisk() {
     render();
     showNotice('Reloaded from disk', 'ok');
   } catch (e) {
-    hideProgress();
     showAppAlert('Failed to reload file: ' + e.message, 'Could not reload file');
   }
 }
 
 // ── File watching: catch external edits (e.g. an LLM rewriting the file) ──
-// Local files poll lastModified every 3s; GitLab files poll the commits API
-// every 15s (gentler on the server, same behavior).
+// Polls lastModified every 3s.
 let watchTimer = null;
 function startWatch() {
   if (watchTimer) clearInterval(watchTimer);
-  watchTimer = setInterval(checkDiskChange, state.remote ? 15000 : 3000);
+  watchTimer = setInterval(checkDiskChange, 3000);
 }
 
 async function checkDiskChange() {
   if (!state.fileOpen || document.hidden) return;
-  if (state.remote) {
-    try {
-      const latest = await glLatestCommitId();
-      if (!latest || latest === state.remote.lastCommitId) return;
-      if (!state.dirty && getAutoReload()) {
-        await reloadFromGitLab();
-        showNotice('File changed on GitLab — reloaded');
-      } else {
-        state.remote.lastCommitId = latest;
-        showDiskBanner(state.dirty);
-      }
-    } catch (_) { /* transient API failure — try again next tick */ }
-    return;
-  }
   if (!state.fileHandle) return;
   try {
     const file = await state.fileHandle.getFile();
@@ -304,10 +275,9 @@ function showDiskBanner(conflict) {
   // Record the conflict in state, not just the DOM: dismissing the banner must
   // not re-arm auto-save — only an explicit save or reload resolves it.
   state.diskMoved = true;
-  const where = state.remote ? 'on GitLab' : 'on disk';
   $('#disk-banner-msg').textContent = conflict
-    ? 'This file changed ' + where + ' and you have unsaved changes. Saving will overwrite that version.'
-    : 'This file changed ' + where + '.';
+    ? 'This file changed on disk and you have unsaved changes. Saving will overwrite that version.'
+    : 'This file changed on disk.';
   $('#btn-disk-reload').textContent = conflict ? 'Reload (discard mine)' : 'Reload';
   $('#disk-banner').style.display = 'flex';
   updateToolbar();  // diskMoved re-lights the save button under auto-save
@@ -337,20 +307,16 @@ $('#btn-autoreload').addEventListener('click', () => {
 });
 refreshAutoReloadButton();
 
-// ── Auto-save (local files only — a remote auto-save would spam commits) ──
+// ── Auto-save ──
 function getAutoSave() { return getFlag('auto-save'); }
 // The one definition of "auto-save covers the open document" — the scheduler,
 // the timer, saveFile and the toolbar must all agree on it.
-function autoSaveActive() { return getAutoSave() && !!state.fileHandle && !state.remote; }
+function autoSaveActive() { return getAutoSave() && !!state.fileHandle; }
 function refreshAutoSaveButton() {
   const on = getAutoSave();
   const btn = $('#btn-autosave');
-  // Reflect the *effective* state: the preference can be on while a GitLab
-  // file keeps auto-save inert — showing the knob "on" there would be a lie.
-  btn.title = on && state.remote
-    ? 'Auto-save is off for GitLab files — every commit stays deliberate'
-    : 'Auto-save local files shortly after each change: ' + (on ? 'on' : 'off');
-  btn.classList.toggle('on', on && !state.remote);
+  btn.title = 'Auto-save shortly after each change: ' + (on ? 'on' : 'off');
+  btn.classList.toggle('on', on);
 }
 $('#btn-autosave').addEventListener('click', async () => {
   const on = !getAutoSave();
@@ -359,7 +325,7 @@ $('#btn-autosave').addEventListener('click', async () => {
   updateToolbar();
   // Turning it on IS a user gesture — grab write permission now, because the
   // gesture-less timer never can (it would silently stay dirty until a manual save).
-  if (on && state.fileHandle && !state.remote) {
+  if (on && state.fileHandle) {
     try {
       if (await state.fileHandle.requestPermission({ mode: 'readwrite' }) === 'granted') {
         autoSaveBlocked = false;
@@ -487,7 +453,6 @@ async function openSample() {
   state.fileName = 'annotation-sample.md';
   state.displayPath = 'Sample document — save to create your own copy';
   state.fileHandle = null;
-  state.remote = null;
   state.sample = true;
   state.dirty = false;
   state.diskMoved = false;
@@ -587,402 +552,6 @@ async function openFolderFile(f) {
   }
 }
 
-// ── GitLab: open/annotate/commit repo files via the REST API ─────────────
-// Browser-only: the page talks straight to the user's GitLab (gitlab.com or
-// self-hosted) with a personal access token. Tokens are memory-only unless the
-// user explicitly opts into device storage; a remote file is state.remote.
-function glNormBase(base) { return String(base || '').trim().replace(/\/+$/, ''); }
-const glMemoryTokens = Object.create(null);
-
-// Older releases persisted PATs without asking. Keep them usable for this tab
-// but remove that implicit persistence; a later explicit Remember choice sets
-// the consent marker and stores the selected instance again.
-try {
-  if (localStorage.getItem('gitlab-token-storage-consent-v1') !== '1') {
-    const parsed = JSON.parse(localStorage.getItem('gitlab-tokens') || '{}');
-    const old = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    Object.assign(glMemoryTokens, old);
-    const legacy = localStorage.getItem('gitlab-token') || '';
-    const legacyBase = glNormBase(localStorage.getItem('gitlab-base'));
-    if (legacy && legacyBase) glMemoryTokens[legacyBase] = legacy;
-    localStorage.removeItem('gitlab-tokens');
-    localStorage.removeItem('gitlab-token');
-  }
-} catch (_) {}
-
-// Tokens are per instance: a recent file on gitlab.com must not be fetched
-// with (or committed using) a self-hosted instance's token just because that
-// one was configured last. `gitlab-base` remembers the instance used last;
-// `gitlab-tokens` maps base → token only after explicit Remember consent.
-function glTokens() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem('gitlab-tokens') || '{}');
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  }
-  catch (_) { return {}; }
-}
-function glTokenFor(base) {
-  const b = glNormBase(base);
-  if (glMemoryTokens[b]) return glMemoryTokens[b];
-  const map = glTokens();
-  if (map[b]) return map[b];
-  // Migration: the single-token era stored one key with no instance attached.
-  try {
-    const legacy = localStorage.getItem('gitlab-token') || '';
-    if (legacy && b === glNormBase(localStorage.getItem('gitlab-base'))) return legacy;
-  } catch (_) {}
-  return '';
-}
-function glStoredTokenFor(base) {
-  const b = glNormBase(base);
-  const map = glTokens();
-  if (map[b]) return map[b];
-  try {
-    const legacy = localStorage.getItem('gitlab-token') || '';
-    return legacy && b === glNormBase(localStorage.getItem('gitlab-base')) ? legacy : '';
-  } catch (_) { return ''; }
-}
-function glConfig() {
-  let base = '';
-  try { base = localStorage.getItem('gitlab-base') || ''; } catch (_) {}
-  base = glNormBase(base) || 'https://gitlab.com';
-  return { base, token: glTokenFor(base) };
-}
-function glSaveConfig(base, token, remember) {
-  const b = glNormBase(base) || 'https://gitlab.com';
-  const t = String(token || '').trim();
-  if (t) glMemoryTokens[b] = t; else delete glMemoryTokens[b];
-  try {
-    localStorage.setItem('gitlab-base', b);
-    const map = glTokens();
-    if (remember && t) map[b] = t; else delete map[b];
-    localStorage.setItem('gitlab-tokens', JSON.stringify(map));
-    if (remember && t) localStorage.setItem('gitlab-token-storage-consent-v1', '1');
-    if (!remember) localStorage.removeItem('gitlab-token');
-  } catch (_) {}
-}
-
-// `base` targets a specific instance (a remote file carries its own); it
-// defaults to the instance configured last.
-async function glApi(path, opts, base) {
-  base = glNormBase(base) || glConfig().base;
-  const token = glTokenFor(base);
-  const headers = Object.assign({}, opts && opts.headers);
-  if (token) headers['PRIVATE-TOKEN'] = token;
-  let res;
-  try {
-    res = await fetch(base + '/api/v4' + path, Object.assign({}, opts, { headers }));
-  } catch (e) {
-    throw new Error('Could not reach ' + base + ' — network or CORS issue.');
-  }
-  if (!res.ok) {
-    let msg = res.status + ' ' + res.statusText;
-    try {
-      const j = await res.json();
-      if (j.message) msg = typeof j.message === 'string' ? j.message : JSON.stringify(j.message);
-      else if (j.error) msg = j.error;
-    } catch (_) {}
-    const err = new Error(msg);
-    err.status = res.status;
-    throw err;
-  }
-  return res.json();
-}
-
-// GitLab serves file content base64-encoded; decode/encode as UTF-8.
-function glDecodeB64(b64) {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new TextDecoder().decode(bytes);
-}
-
-async function openGitLabFile(desc, opts) {
-  const silent = opts && opts.silent;
-  if (state.dirty && !await askConfirmation('You have unsaved changes. Open another file anyway?', 'Open GitLab file')) return;
-  cancelAutoSave();  // the user just chose to discard — a pending timer must not save
-  showProgress('Opening ' + desc.path + ' from GitLab…');
-  // A recents entry carries the instance it came from; a fresh open from the
-  // dialog has just written that instance to the config.
-  const base = glNormBase(desc.base) || glConfig().base;
-  try {
-    const f = await glApi('/projects/' + desc.projectId + '/repository/files/' +
-      encodeURIComponent(desc.path) + '?ref=' + encodeURIComponent(desc.branch), null, base);
-    discardPendingEdits();
-    state.rawMarkdown = glDecodeB64(f.content);
-    state.fileHandle = null;
-    state.sample = false;
-    state.remote = {
-      base,
-      projectId: desc.projectId,
-      projectPath: desc.projectPath,
-      branch: desc.branch,
-      path: desc.path,
-      lastCommitId: f.last_commit_id,
-    };
-    state.fileName = desc.path.split('/').pop();
-    state.displayPath = desc.projectPath + '/' + desc.path + ' @ ' + desc.branch;
-    state.dirty = false;
-    state.diskMoved = false;
-    state.fileOpen = true;
-    clearUndo();
-    render({ fresh: true });
-    recordRecent({ remote: state.remote, name: state.displayPath });
-    startWatch();
-    recordSession({ remote: state.remote, name: state.displayPath });
-    showNotice('Opened ' + state.fileName + ' from GitLab (' + desc.branch + ')', 'ok');
-  } catch (e) {
-    hideProgress();
-    if (!silent) showNotice('GitLab: ' + e.message);
-  }
-}
-
-// Save = commit to the branch the file was opened from. last_commit_id gives
-// optimistic locking: GitLab rejects the commit if the file changed meanwhile.
-async function glCommit(content) {
-  const r = state.remote;
-  await glApi('/projects/' + r.projectId + '/repository/files/' + encodeURIComponent(r.path), {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      branch: r.branch,
-      content,
-      commit_message: 'annotations: ' + r.path,
-      last_commit_id: r.lastCommitId,
-    }),
-  }, r.base);
-  // Re-baseline from the branch head. Someone else's commit can land between
-  // the PUT and this GET; adopting its id blindly would silently disarm both
-  // the optimistic lock and the watcher, so compare content and flag a
-  // conflict when the head no longer holds what we just wrote.
-  const f = await glApi('/projects/' + r.projectId + '/repository/files/' +
-    encodeURIComponent(r.path) + '?ref=' + encodeURIComponent(r.branch), null, r.base);
-  r.lastCommitId = f.last_commit_id;
-  if (glDecodeB64(f.content) !== content) {
-    showDiskBanner(false);
-    showNotice('Someone else committed to this branch — reload before continuing');
-  }
-}
-
-// Latest commit touching the file on its branch — the remote "lastModified".
-async function glLatestCommitId() {
-  const r = state.remote;
-  const commits = await glApi('/projects/' + r.projectId + '/repository/commits?ref_name=' +
-    encodeURIComponent(r.branch) + '&path=' + encodeURIComponent(r.path) + '&per_page=1', null, r.base);
-  return commits[0] && commits[0].id;
-}
-
-async function reloadFromGitLab() {
-  const r = state.remote;
-  const f = await glApi('/projects/' + r.projectId + '/repository/files/' +
-    encodeURIComponent(r.path) + '?ref=' + encodeURIComponent(r.branch), null, r.base);
-  discardPendingEdits();
-  state.rawMarkdown = glDecodeB64(f.content);
-  r.lastCommitId = f.last_commit_id;
-  state.dirty = false;
-  state.diskMoved = false;
-  clearUndo();
-  hideDiskBanner();
-  render();
-}
-
-// ── Remote commit dialog: current branch, or another branch (+ MR) ────────
-// Shown on the first save of each remote file; the choice sticks for the
-// session (switching branch re-points state.remote, so later saves, the
-// watcher, and reloads all follow the annotation branch).
-const commitDialog = $('#commit-dialog');
-
-function cdSetStatus(msg, isError) {
-  const el = $('#cd-status');
-  el.textContent = msg || '';
-  el.classList.toggle('gl-error', !!isError);
-}
-
-function showCommitDialog() {
-  $('#cd-branch-name').textContent = state.remote.branch;
-  $('#cd-mr-target').textContent = state.remote.branch;
-  if (!$('#cd-branch').value.trim()) {
-    $('#cd-branch').value = 'annotations/' + state.fileName.replace(/\.[^.]+$/, '').toLowerCase();
-  }
-  cdSetStatus('');
-  cdSyncRows();
-  showModal(commitDialog, $('#cd-current'));
-}
-function hideCommitDialog() { hideModal(commitDialog); }
-function cdSyncRows() {
-  $('#cd-other-row').classList.toggle('cd-disabled', !$('#cd-other').checked);
-}
-
-async function ensureMergeRequest(r, targetBranch) {
-  const existing = await glApi('/projects/' + r.projectId + '/merge_requests?state=opened' +
-    '&source_branch=' + encodeURIComponent(r.branch) + '&target_branch=' + encodeURIComponent(targetBranch),
-    null, r.base);
-  if (existing.length) {
-    showNotice('Committed — merge request !' + existing[0].iid + ' is already open', 'ok');
-    return;
-  }
-  const mr = await glApi('/projects/' + r.projectId + '/merge_requests', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      source_branch: r.branch,
-      target_branch: targetBranch,
-      title: 'Annotations: ' + r.path,
-      remove_source_branch: true,
-    }),
-  }, r.base);
-  showNotice('Committed — merge request !' + mr.iid + ' opened', 'ok');
-}
-
-async function cdCommit() {
-  const r = state.remote;
-  if (!r) { hideCommitDialog(); return; }
-  if (!$('#cd-other').checked) {
-    r.saveConfigured = true;
-    hideCommitDialog();
-    await saveFile();
-    return;
-  }
-  const target = $('#cd-branch').value.trim();
-  if (!target) { cdSetStatus('Branch name is required.', true); return; }
-  const src = r.branch;
-  $('#cd-commit').disabled = true;
-  cdSetStatus('Preparing branch…');
-  try {
-    let exists = true;
-    try {
-      await glApi('/projects/' + r.projectId + '/repository/branches/' + encodeURIComponent(target), null, r.base);
-    } catch (_) { exists = false; }
-    if (!exists) {
-      await glApi('/projects/' + r.projectId + '/repository/branches?branch=' + encodeURIComponent(target) +
-        '&ref=' + encodeURIComponent(src), { method: 'POST' }, r.base);
-    }
-    // The open file now lives on the annotation branch; MRs point back home.
-    r.mrTarget = src;
-    r.branch = target;
-    r.saveConfigured = true;
-    state.displayPath = r.projectPath + '/' + r.path + ' @ ' + target;
-    hideCommitDialog();
-    await saveFile();
-    if (!state.dirty && $('#cd-mr').checked) await ensureMergeRequest(r, src);
-    recordRecent({ remote: r, name: state.displayPath });
-    updateToolbar();
-  } catch (e) {
-    cdSetStatus('GitLab: ' + e.message, true);
-  } finally {
-    $('#cd-commit').disabled = false;
-  }
-}
-
-$('#cd-close').addEventListener('click', hideCommitDialog);
-$('#cd-commit').addEventListener('click', cdCommit);
-$('#cd-current').addEventListener('change', cdSyncRows);
-$('#cd-other').addEventListener('change', cdSyncRows);
-$('#cd-branch').addEventListener('focus', () => { $('#cd-other').checked = true; cdSyncRows(); });
-$('#cd-branch').addEventListener('keydown', (e) => { if (e.key === 'Enter') cdCommit(); });
-document.addEventListener('mousedown', (e) => {
-  if (commitDialog.classList.contains('visible') && !commitDialog.contains(e.target)) hideCommitDialog();
-});
-
-// ── GitLab dialog: one file link + one token ───────────────
-const glDialog = $('#gitlab-dialog');
-const glStatus = $('#gl-status');
-
-function glSetStatus(msg, isError) {
-  glStatus.textContent = msg || '';
-  glStatus.classList.toggle('gl-error', !!isError);
-}
-
-function showGitLabDialog() {
-  const config = glConfig();
-  $('#gl-token').value = config.token;
-  $('#gl-token').dataset.base = config.base;
-  $('#gl-remember').checked = !!glStoredTokenFor(config.base);
-  $('#gl-url').value = '';
-  glSetStatus('');
-  showModal(glDialog, $('#gl-url'));
-}
-
-// Pasting a link for an instance we already have a token for swaps it in, so
-// a second GitLab server doesn't silently reuse the first one's credentials.
-function glSyncTokenToUrl() {
-  const parsed = parseGitLabUrl($('#gl-url').value);
-  if (!parsed) return;
-  const tokenInput = $('#gl-token');
-  const known = glTokenFor(parsed.base);
-  if (tokenInput.dataset.base !== parsed.base) {
-    tokenInput.value = known || '';
-    tokenInput.dataset.base = parsed.base;
-  }
-  $('#gl-remember').checked = !!glStoredTokenFor(parsed.base);
-}
-function hideGitLabDialog() { hideModal(glDialog); }
-
-// Parse a pasted GitLab file URL: <base>/<group/sub/project>/-/blob/<ref>/<file path>
-function parseGitLabUrl(input) {
-  return Helpers.parseGitLabBlobUrl(input);
-}
-
-async function resolveGitLabBranch(parsed, projectId) {
-  const candidates = Helpers.gitLabRefCandidates(parsed);
-  for (const candidate of candidates) {
-    try {
-      await glApi('/projects/' + projectId + '/repository/branches/' + encodeURIComponent(candidate.ref), null, parsed.base);
-      return candidate;
-    } catch (e) {
-      if (e.status !== 404) throw e;
-    }
-  }
-  return null;
-}
-
-// Resolve a parsed blob link (project id, real branch) and open the file.
-// A ref that isn't a branch (pinned commit SHA) falls back to the default
-// branch — commits need a branch. onResolved fires between resolution and
-// the open, so the dialog path can dismiss itself at the same moment it
-// always has.
-async function glResolveAndOpen(parsed, onResolved) {
-  const proj = await glApi('/projects/' + encodeURIComponent(parsed.projectPath), null, parsed.base);
-  const resolved = await resolveGitLabBranch(parsed, proj.id);
-  const fallback = Helpers.gitLabRefCandidates(parsed).slice(-1)[0];
-  const branch = resolved ? resolved.ref : proj.default_branch;
-  const path = resolved ? resolved.path : fallback.path;
-  if (!resolved) showNotice('Link does not name a branch — opened "' + branch + '" instead');
-  if (onResolved) onResolved();
-  await openGitLabFile({ base: parsed.base, projectId: proj.id, projectPath: proj.path_with_namespace, branch, path });
-}
-
-async function glOpenFromDialog() {
-  const parsed = parseGitLabUrl($('#gl-url').value);
-  if (!parsed) {
-    glSetStatus('Paste a link to a file in a GitLab repo — the URL contains /-/blob/.', true);
-    return;
-  }
-  glSaveConfig(parsed.base, $('#gl-token').value, $('#gl-remember').checked);
-  glSetStatus('Resolving branch and file…');
-  try {
-    await glResolveAndOpen(parsed, hideGitLabDialog);
-  } catch (e) {
-    glSetStatus('GitLab: ' + e.message, true);
-  }
-}
-
-$('#btn-gitlab').addEventListener('click', (e) => {
-  e.stopPropagation();
-  if (glDialog.classList.contains('visible')) hideGitLabDialog();
-  else showGitLabDialog();
-});
-$('#gl-close').addEventListener('click', hideGitLabDialog);
-$('#gl-open').addEventListener('click', glOpenFromDialog);
-$('#gl-url').addEventListener('input', glSyncTokenToUrl);
-$('#gl-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') glOpenFromDialog(); });
-$('#gl-token').addEventListener('keydown', (e) => { if (e.key === 'Enter') glOpenFromDialog(); });
-document.addEventListener('mousedown', (e) => {
-  if (glDialog.classList.contains('visible') && !glDialog.contains(e.target) && !e.target.closest('#btn-gitlab')) {
-    hideGitLabDialog();
-  }
-});
-
 // ── Recent files (file handles persisted in IndexedDB) ─────
 // Web pages never see real paths; we keep the FileSystemFileHandle objects
 // themselves (they are structured-cloneable) and re-request permission on use.
@@ -1022,12 +591,7 @@ async function fetchRecent() {
   }
 }
 
-function sameRemote(a, b) {
-  return a && b && a.base === b.base && String(a.projectId) === String(b.projectId) &&
-    a.branch === b.branch && a.path === b.path;
-}
-
-// entry: { handle, name } for local files, { remote, name } for GitLab files.
+// entry: { handle, name }
 async function recordRecent(entry) {
   try {
     const db = await idbOpen();
@@ -1035,9 +599,7 @@ async function recordRecent(entry) {
     // Dedupe: drop entries pointing at the same file and trim.
     const drop = [];
     for (const e of all) {
-      if (entry.remote) {
-        if (sameRemote(e.remote, entry.remote)) drop.push(e.id);
-      } else if (e.handle) {
+      if (e.handle) {
         try { if (await e.handle.isSameEntry(entry.handle)) drop.push(e.id); }
         catch (_) { drop.push(e.id); }  // dead/uncloneable handle — prune
       }
@@ -1047,7 +609,7 @@ async function recordRecent(entry) {
     const tx = db.transaction(IDB_STORE, 'readwrite');
     const store = tx.objectStore(IDB_STORE);
     for (const id of drop) store.delete(id);
-    store.add({ handle: entry.handle || null, remote: entry.remote || null, name: entry.name, ts: Date.now() });
+    store.add({ handle: entry.handle || null, name: entry.name, ts: Date.now() });
     await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
     db.close();
   } catch (e) { /* recents are best-effort */ }
@@ -1086,7 +648,7 @@ async function recordSession(entry) {
     const tx = db.transaction(IDB_SESSION, 'readwrite');
     const store = tx.objectStore(IDB_SESSION);
     for (const k of stale) store.delete(k);
-    store.put({ handle: entry.handle || null, remote: entry.remote || null, name: entry.name, ts: Date.now() }, id);
+    store.put({ handle: entry.handle || null, name: entry.name, ts: Date.now() }, id);
     await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
     db.close();
   } catch (_) { /* best-effort, like recents */ }
@@ -1139,12 +701,11 @@ function recentItemButton(f) {
   name.textContent = f.name;
   const meta = document.createElement('span');
   meta.className = 'recent-path';
-  meta.textContent = (f.remote ? 'GitLab · ' : '') + 'opened ' + new Date(f.ts).toLocaleDateString();
+  meta.textContent = 'opened ' + new Date(f.ts).toLocaleDateString();
   btn.append(name, meta);
   btn.addEventListener('click', () => {
     hideRecentMenu();
-    if (f.remote) openGitLabFile(f.remote);
-    else openHandle(f.handle);
+    openHandle(f.handle);
   });
   return btn;
 }
@@ -1206,54 +767,46 @@ async function saveFile(opts) {
       return;
     }
   }
-  if (!state.fileHandle && !state.remote) return;
+  if (!state.fileHandle) return;
   if (auto && (!autoSaveActive() || state.diskMoved)) return;
-  // First save of a remote file: ask where the commit should go.
-  if (state.remote && !state.remote.saveConfigured) { showCommitDialog(); return; }
   savePending = true;
   const content = state.rawMarkdown;
   // Snapshot the handle: an open() completing during our awaits must not
   // retarget this write at the newly opened file.
   const handle = state.fileHandle;
   try {
-    if (state.remote) {
-      showProgress('Committing to GitLab…');
-      await glCommit(content);  // re-baselines lastCommitId itself
-      hideProgress();
-    } else {
-      if (auto) {
-        // A timer has no user gesture for the permission prompt: only proceed
-        // once a manual save has granted write access; until then stay dirty,
-        // but tell the user once instead of leaving the dot a mystery.
-        if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted') {
-          autoSaveBlocked = true;
-          updateToolbar();  // light the save button — it's the way out of the stall
-          if (!autoSaveBlockedNotified) {
-            autoSaveBlockedNotified = true;
-            showNotice('Auto-save needs write access — save once with Ctrl+S to grant it.', 'info');
-          }
-          return;
+    if (auto) {
+      // A timer has no user gesture for the permission prompt: only proceed
+      // once a manual save has granted write access; until then stay dirty,
+      // but tell the user once instead of leaving the dot a mystery.
+      if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted') {
+        autoSaveBlocked = true;
+        updateToolbar();  // light the save button — it's the way out of the stall
+        if (!autoSaveBlockedNotified) {
+          autoSaveBlockedNotified = true;
+          showNotice('Auto-save needs write access — save once with Ctrl+S to grant it.', 'info');
         }
-        // The watcher only polls every 3s (and not while hidden) — catch an
-        // external write that landed in the gap instead of clobbering it.
-        const onDisk = await handle.getFile();
-        if (onDisk.lastModified > state.lastModified) {
-          state.lastModified = onDisk.lastModified;
-          showDiskBanner(true);
-          return;
-        }
-      } else if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted' &&
-          await handle.requestPermission({ mode: 'readwrite' }) !== 'granted') {
-        showAppAlert('Write access was not granted — the file was not saved.', 'Save cancelled');
         return;
       }
-      const writable = await handle.createWritable();
-      await writable.write(content);
-      await writable.close();
-      // Re-baseline the watcher so our own write isn't reported as external.
-      try { state.lastModified = (await handle.getFile()).lastModified; } catch (_) {}
-      if (!auto) recordRecent({ handle, name: handle.name });
+      // The watcher only polls every 3s (and not while hidden) — catch an
+      // external write that landed in the gap instead of clobbering it.
+      const onDisk = await handle.getFile();
+      if (onDisk.lastModified > state.lastModified) {
+        state.lastModified = onDisk.lastModified;
+        showDiskBanner(true);
+        return;
+      }
+    } else if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted' &&
+        await handle.requestPermission({ mode: 'readwrite' }) !== 'granted') {
+      showAppAlert('Write access was not granted — the file was not saved.', 'Save cancelled');
+      return;
     }
+    const writable = await handle.createWritable();
+    await writable.write(content);
+    await writable.close();
+    // Re-baseline the watcher so our own write isn't reported as external.
+    try { state.lastModified = (await handle.getFile()).lastModified; } catch (_) {}
+    if (!auto) recordRecent({ handle, name: handle.name });
     state.diskMoved = false;  // a completed save is the deliberate overwrite
     autoSaveBlocked = false;  // this save proved we can write
     // Only clear dirty if nothing changed while the write was in flight.
@@ -1266,11 +819,7 @@ async function saveFile(opts) {
     flashSaved();
     hideDiskBanner();
   } catch (e) {
-    hideProgress();
-    // GitLab rejects the commit when the file moved under us (optimistic lock).
-    if (state.remote && e.status === 400 && /changed/i.test(e.message)) {
-      showDiskBanner(true);
-    } else if (auto) {
+    if (auto) {
       autoSaveBlocked = true;  // stalled — light the save button as the manual way out
       updateToolbar();
       showNotice('Auto-save failed: ' + e.message);  // a timer must not raise modal alerts
@@ -1297,7 +846,6 @@ async function closeFile() {
   state.fileName = '';
   state.displayPath = '';
   state.fileHandle = null;
-  state.remote = null;
   state.sample = false;
   state.dirty = false;
   state.diskMoved = false;
@@ -1652,7 +1200,7 @@ function updateToolbar() {
   const dirtyLasting = state.dirty && (!autoSaveActive() || autoSaveBlocked || state.diskMoved);
   $('#btn-refresh').disabled = noFile || state.sample || (getAutoReload() && !dirtyLasting);
   $('#btn-autoreload').disabled = noFile || state.sample;
-  $('#btn-autosave').disabled = noFile || !!state.remote || state.sample;  // local files only
+  $('#btn-autosave').disabled = noFile || state.sample;
   refreshAutoSaveButton();  // its knob/title reflect the open file's type
   $('#btn-export').disabled = noFile;
   $('#btn-mode-toggle').disabled = noFile;
@@ -1871,8 +1419,7 @@ function commitAnnotation() {
   hideAnnotationPopup();
 }
 
-// Toasts: transient notices (red by default, 'ok' green, 'info' blue) and a
-// sticky progress variant with a spinner for slow operations (GitLab calls).
+// Toasts: transient notices (red by default, 'ok' green, 'info' blue).
 let noticeTimer = null;
 function setToast(msg, kind, ms) {
   const el = $('#notice');
@@ -1885,14 +1432,6 @@ function setToast(msg, kind, ms) {
   if (ms) noticeTimer = setTimeout(() => el.classList.remove('show'), ms);
 }
 function showNotice(msg, kind) { setToast(msg, kind, 2600); }
-function showProgress(msg) {
-  setToast(msg, 'info');           // sticky — cleared by hideProgress or the next toast
-  $('#notice').classList.add('loading');
-}
-function hideProgress() {
-  const el = $('#notice');
-  if (el.classList.contains('loading')) el.classList.remove('show', 'loading');
-}
 
 // ── Edit annotation popup ──────────────────────────────────
 function openEditPopup(group, badgeEl) {
@@ -2392,8 +1931,6 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Escape') {
     if ($('#message-dialog').classList.contains('visible')) { finishMessage(false); return; }
-    if (commitDialog.classList.contains('visible')) { hideCommitDialog(); return; }
-    if (glDialog.classList.contains('visible')) { hideGitLabDialog(); return; }
     if (recentMenu.classList.contains('visible')) { hideRecentMenu(); return; }
     if (exportMenu.classList.contains('visible')) { exportMenu.classList.remove('visible'); return; }
     if (diagramMenu.classList.contains('visible')) { hideDiagramMenu(); return; }
@@ -2498,29 +2035,7 @@ if ('launchQueue' in window) {
   });
 }
 
-// Deep link: /?blob=<encoded GitLab file URL> (e.g. a Play Routing Map click)
-// opens that file on load. The param is stripped immediately so a later
-// refresh restores this tab's session instead of re-following the link. A
-// new instance prompts for its token once via the prefilled GitLab dialog.
-async function openDeepLink() {
-  const url = Helpers.deepLinkBlobUrl(location.search);
-  if (!url) return false;
-  history.replaceState(null, '', location.pathname);
-  const parsed = parseGitLabUrl(url);
-  if (!parsed) { showNotice('Deep link is not a GitLab file URL'); return false; }
-  if (!glTokenFor(parsed.base)) {
-    showGitLabDialog();
-    $('#gl-url').value = url;
-    glSyncTokenToUrl();
-    glSetStatus('A token for ' + parsed.base + ' is needed once — paste it and Open.', true);
-    return true;
-  }
-  try { await glResolveAndOpen(parsed); }
-  catch (e) { showAppAlert('Could not open the linked file: ' + e.message, 'Deep link'); }
-  return true;
-}
-
 initTheme();
 updateToolbar();
 refreshWelcomeRecent();
-openDeepLink().then((handled) => { if (!handled) tryRestoreLast(); });
+tryRestoreLast();
