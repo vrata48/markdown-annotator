@@ -6,7 +6,7 @@ Browser-only, single-page markdown annotator. No server, no build step, no packa
 
 - **`annotator-core.js`** — `window.AnnotatorCore` (UMD, also loadable in Node — the unit tests require it directly). Owns CriticMarkup parsing (`scanAnnotations`), the group model, accept/reject semantics (`acceptGroup`/`deleteGroup`), `docZone`, structure-preserving insertion (`analyzeTarget`/`applyInserts`/`suggestEdit`), and rendering helpers (`preprocessCriticMarkup`/`annHtml`). Change annotation semantics **here**, never in app.js.
 - **`app-helpers.js`** — `window.AnnotatorAppHelpers` (UMD, also loadable in Node). Owns selection→source matching helpers, folder-tree filtering, and compact annotation navigation models.
-- **`app.js`** — browser integration: the pen-tray rail (left icon toolbar), rendering (markdown-it + mermaid + highlight.js from CDN), popups/dialogs, inline annotation navigation, folder mode, annotate/view modes, undo, file watching, theme, File System Access I/O, IndexedDB recents, PWA launch handling.
+- **`app.js`** — browser integration: the pen-tray rail (left icon toolbar), rendering (markdown-it + mermaid + highlight.js from CDN), popups/dialogs, the rail annotation navigator (`#rail-ann`: count, prev/next, jump list — comments numbered to match the inline markers, edits shown as ±), folder mode, annotate/view modes, undo, file watching, theme, File System Access I/O, IndexedDB recents, PWA launch handling.
 - **`index.html`** — markup + all CSS (design tokens in `:root`, dark set under `:root[data-theme="dark"]`). CDN deps are pinned to exact versions **with SRI hashes** — bumping a version means recomputing the hash (mermaid is pin-only; ESM chain can't use SRI).
 - **Tests** — `node --test "tests/*.test.js"`; `tests/browser-e2e.cjs` drives real Chromium with OPFS. CI runs both on every push (`.github/workflows/ci.yml`). Core changes without a test are unfinished.
 
@@ -43,4 +43,4 @@ Browser-only, single-page markdown annotator. No server, no build step, no packa
 - Watch CSS specificity: `#rail button` (id+element) beats `#btn-x` (id) — prefix overrides with `#rail`. Same trap with `.content h2` vs `#welcome h2`.
 - Design specs for shipped features live in `docs/superpowers/specs/`.
 - `.lab/` and `in/` are local scratch — never commit them.
-- Local scripts load with `?v=N` cache-busters (`app-helpers.js?v=2`, `annotator-core.js?v=13`, `app.js?v=57`). Bump core and app together when either interface changes — stale-cache mixes can throw "X is not a function" for users on plain reload. Bump the helper when its browser API changes.
+- Local scripts load with `?v=N` cache-busters (`app-helpers.js?v=2`, `annotator-core.js?v=13`, `app.js?v=58`). Bump core and app together when either interface changes — stale-cache mixes can throw "X is not a function" for users on plain reload. Bump the helper when its browser API changes.

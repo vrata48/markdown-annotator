@@ -75,8 +75,8 @@ async function selectText(page, needle) {
 
     await page.locator('#btn-sample').click();
     await page.locator('body.file-open').waitFor();
-    assert(await page.locator('#annotation-nav.visible').count() === 1, 'sample did not expose annotation navigator');
-    assert((await page.locator('#ann-nav-count').textContent()).endsWith('of 2'), 'sample annotation count is wrong');
+    assert(await page.locator('#rail-ann:not([hidden])').count() === 1, 'sample did not expose annotation navigator');
+    assert((await page.locator('#ann-nav-count').textContent()).endsWith('/ 2'), 'sample annotation count is wrong');
     const sampleBrief = await page.evaluate(() => ({
       source: state.rawMarkdown.includes('<!-- markdown-annotator:review:start -->'),
       rendered: document.querySelector('#content').textContent.includes('Annotation review brief'),

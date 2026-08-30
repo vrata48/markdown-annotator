@@ -873,9 +873,11 @@ let annotationNavIndex = -1;
 function renderAnnotationNavigatorText() {
   const item = annotationNavGroups[annotationNavIndex];
   if (!item) return;
-  $('#ann-nav-count').textContent = (annotationNavIndex + 1) + ' of ' + annotationNavGroups.length;
-  $('#ann-nav-summary').textContent = item.label || 'Annotation';
-  [...$('#ann-nav-list').children].forEach((button, index) => button.classList.toggle('current', index === annotationNavIndex));
+  $('#ann-nav-count').textContent = (annotationNavIndex + 1) + ' / ' + annotationNavGroups.length;
+  [...$('#ann-nav-list').children].forEach((button, index) => {
+    button.classList.toggle('current', index === annotationNavIndex);
+    if (index === annotationNavIndex) button.scrollIntoView({ block: 'nearest' });
+  });
 }
 
 function focusAnnotation(index) {
@@ -898,34 +900,32 @@ function updateAnnotationNavigator() {
   annotationNavGroups = Helpers.annotationGroups(Core.scanAnnotations(state.rawMarkdown));
   if (!annotationNavGroups.length) {
     annotationNavIndex = -1;
-    $('#annotation-nav').classList.remove('visible');
-    $('#ann-nav-list').classList.remove('visible');
-    $('#ann-nav-all').setAttribute('aria-expanded', 'false');
+    $('#rail-ann').hidden = true;
     return;
   }
   const retained = annotationNavGroups.findIndex(item => item.group === currentGroup);
   annotationNavIndex = retained >= 0 ? retained : Math.min(Math.max(annotationNavIndex, 0), annotationNavGroups.length - 1);
-  $('#annotation-nav').classList.add('visible');
+  $('#rail-ann').hidden = false;
   renderAnnotationNavigatorText();
   const list = $('#ann-nav-list');
   list.innerHTML = '';
+  let commentNo = 0;  // inline markers number comment groups only; keep the list in step
   annotationNavGroups.forEach((item, index) => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.setAttribute('role', 'menuitem');
+    button.setAttribute('role', 'listitem');
+    button.title = item.label || 'Annotation';
     button.classList.toggle('current', index === annotationNavIndex);
     const number = document.createElement('span');
-    number.className = 'ann-list-index';
-    number.textContent = String(index + 1);
+    const isComment = item.kind === 'pair' || item.kind === 'point' || item.kind === 'highlight';
+    number.className = 'ann-list-index' + (isComment ? '' : ' ann-list-edit');
+    number.textContent = isComment ? String(++commentNo) : '±';
+    number.title = isComment ? 'Comment' : 'Suggested edit';
     const label = document.createElement('span');
     label.className = 'ann-list-label';
     label.textContent = item.label || 'Annotation';
     button.append(number, label);
-    button.addEventListener('click', () => {
-      list.classList.remove('visible');
-      $('#ann-nav-all').setAttribute('aria-expanded', 'false');
-      focusAnnotation(index);
-    });
+    button.addEventListener('click', () => focusAnnotation(index));
     list.appendChild(button);
   });
 }
@@ -1470,26 +1470,6 @@ $('#btn-welcome-open').addEventListener('click', pickFile);
 $('#btn-sample').addEventListener('click', openSample);
 $('#ann-nav-prev').addEventListener('click', () => focusAnnotation(annotationNavIndex - 1));
 $('#ann-nav-next').addEventListener('click', () => focusAnnotation(annotationNavIndex + 1));
-$('#ann-nav-all').addEventListener('click', (e) => {
-  e.stopPropagation();
-  const list = $('#ann-nav-list');
-  const opening = !list.classList.contains('visible');
-  list.classList.toggle('visible', opening);
-  e.currentTarget.setAttribute('aria-expanded', String(opening));
-  if (opening) {
-    const rect = e.currentTarget.getBoundingClientRect();
-    list.style.left = Math.max(12, Math.min(rect.right - list.offsetWidth, window.innerWidth - list.offsetWidth - 12)) + 'px';
-    list.style.top = Math.min(rect.bottom + 6, window.innerHeight - list.offsetHeight - 12) + 'px';
-    const current = list.querySelector('.current');
-    if (current) current.focus();
-  }
-});
-document.addEventListener('mousedown', (e) => {
-  if (!$('#ann-nav-list').contains(e.target) && !e.target.closest('#ann-nav-all')) {
-    $('#ann-nav-list').classList.remove('visible');
-    $('#ann-nav-all').setAttribute('aria-expanded', 'false');
-  }
-});
 $('#btn-open-folder').addEventListener('click', pickFolder);
 $('#btn-recent').addEventListener('click', (e) => {
   e.stopPropagation();
@@ -1732,10 +1712,6 @@ function setMode(mode) {
   if (mode !== 'annotate') {
     hideAnnotationPopup();
     hideEditPopup();
-  }
-  if (mode === 'raw') {
-    $('#ann-nav-list').classList.remove('visible');
-    $('#ann-nav-all').setAttribute('aria-expanded', 'false');
   }
   if (previous !== mode) {
     requestAnimationFrame(() => {
