@@ -499,7 +499,7 @@ body.file-open #welcome { display: none; }
 }
 body.rail-collapsed #rail #ann-nav-cycle { display: flex; }
 body.rail-collapsed #rail-ann-head, body.rail-collapsed #ann-nav-list { display: none; }
-.ann-wrap.ann-current { outline: 3px solid var(--focus-ring); outline-offset: 3px; border-radius: 3px; }
+/* The navigator's current annotation shows via the pinned card + darker marker only — no outline (user preference). */
 @media (max-width: 900px) {
   #rendered-view { padding: 16px 8px 60px; }
   #rendered-view .content { padding: 28px 24px; }
