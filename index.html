@@ -633,21 +633,18 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
   min-width: 15px;
   box-sizing: border-box;
   text-align: center;
-  color: var(--pen);
-  background: var(--paper);
-  border: 1px solid var(--pen-underline);
+  color: var(--on-pen);
+  background: var(--pen);
+  border: 1px solid var(--pen);
   border-radius: 8px;
 }
 .ann-wrap:hover .ann-badge-num, .ann-wrap:focus-within .ann-badge-num, .ann-wrap.ann-current .ann-badge-num {
-  border-color: var(--pen);
+  background: var(--pen-deep);
+  border-color: var(--pen-deep);
 }
 /* Point comments (no highlighted passage) use the same ring shape, sitting in
    the text flow exactly where the click landed. */
 .ann-point .ann-comment-badge { margin: 0 1px; }
-/* Without a highlighted passage there is nothing else to catch the eye, so the
-   point marker is filled. */
-.ann-point .ann-badge-num { color: var(--on-pen); background: var(--pen); border-color: var(--pen); }
-.ann-point:hover .ann-badge-num, .ann-point:focus-within .ann-badge-num, .ann-point.ann-current .ann-badge-num { background: var(--pen-deep); border-color: var(--pen-deep); }
 /* Floating comment card */
 .ann-badge-card {
   display: none;
