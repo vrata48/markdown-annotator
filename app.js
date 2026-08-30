@@ -880,6 +880,11 @@ function renderAnnotationNavigatorText() {
   });
 }
 
+function clearCurrentAnnotation() {
+  contentEl.querySelectorAll('.ann-current').forEach(el => el.classList.remove('ann-current'));
+  if (document.activeElement && contentEl.contains(document.activeElement)) document.activeElement.blur();
+}
+
 function focusAnnotation(index) {
   if (!annotationNavGroups.length) return;
   annotationNavIndex = (index + annotationNavGroups.length) % annotationNavGroups.length;
@@ -973,11 +978,20 @@ function render(opts) {
     });
   });
 
+  // Close on the floating card un-pins it (drops .ann-current) and drops focus
+  // so neither the :focus-within nor the navigator state keeps it open.
+  contentEl.querySelectorAll('.ann-close').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearCurrentAnnotation();
+    });
+  });
+
   // Click anywhere on a comment annotation (highlight, point marker) → edit
   // the group's comment. Suggested edits keep their own accept/reject controls.
   contentEl.querySelectorAll('.ann-wrap:not(.ann-edit)').forEach(el => {
     el.addEventListener('click', (e) => {
-      if (e.target.classList.contains('ann-delete')) return;
+      if (e.target.closest('.ann-badge-actions')) return;
       e.stopPropagation();
       if (state.mode !== 'annotate') return;
       openEditPopup(parseInt(el.dataset.annGroup, 10), el);
@@ -1161,7 +1175,7 @@ function initCodeCopy() {
       // Annotations can live inside code blocks; strip their UI chrome so
       // only the actual code text is copied.
       const clone = code.cloneNode(true);
-      clone.querySelectorAll('.ann-comment-badge, .ann-delete, .ann-accept, .ann-reject')
+      clone.querySelectorAll('.ann-comment-badge, .ann-delete, .ann-close, .ann-accept, .ann-reject')
         .forEach((n) => n.remove());
       try {
         await navigator.clipboard.writeText(clone.textContent.replace(/\n$/, ''));
@@ -1729,7 +1743,7 @@ $('#btn-raw-toggle').addEventListener('click', toggleRawMode);
 renderedView.addEventListener('mouseup', (e) => {
   if (state.mode !== 'annotate') return;
   if (popup.contains(e.target) || editPopup.contains(e.target)) return;
-  if (e.target.closest('.ann-comment-badge') || e.target.closest('.ann-delete')) return;
+  if (e.target.closest('.ann-comment-badge') || e.target.closest('.ann-delete') || e.target.closest('.ann-close')) return;
 
   setTimeout(() => {
     if (!state.fileOpen || state.mode !== 'annotate') return;
@@ -1753,9 +1767,11 @@ renderedView.addEventListener('mouseup', (e) => {
 let pointClickTimer = null;
 renderedView.addEventListener('click', (e) => {
   if (!state.fileOpen) return;
+  // A click outside any annotation releases the card pinned by the navigator.
+  if (!e.target.closest('.ann-wrap')) clearCurrentAnnotation();
   if (state.mode !== 'annotate') return;
   if (popup.contains(e.target) || editPopup.contains(e.target)) return;
-  if (e.target.closest('.ann-comment-badge') || e.target.closest('.ann-delete')) return;
+  if (e.target.closest('.ann-comment-badge') || e.target.closest('.ann-delete') || e.target.closest('.ann-close')) return;
 
   // Clicking a rendered diagram → comment on the whole diagram (block comment
   // before its fence in source); annotating inside the SVG isn't possible.

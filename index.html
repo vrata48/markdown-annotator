@@ -19,7 +19,7 @@
 <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"
         integrity="sha384-wLhprpjsmjc/XYIcF+LpMxd8yS1gss6jhevOp6F6zhiIoFK6AmHtm4bGKtehTani" crossorigin="anonymous"></script>
 <script src="app-helpers.js?v=5"></script>
-<script src="annotator-core.js?v=13"></script>
+<script src="annotator-core.js?v=14"></script>
 <!-- Mermaid ships as an ES module. Keep the loader external so the CSP can
      block inline scripts and event handlers in untrusted Markdown. -->
 <script type="module" src="mermaid-init.js?v=1"></script>
@@ -647,8 +647,16 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
   white-space: normal;
   cursor: default;
 }
-.ann-wrap:hover .ann-badge-card, .ann-wrap:focus-within .ann-badge-card, .ann-wrap.ann-current .ann-badge-card { display: flex; }
-.ann-badge-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.ann-wrap:hover .ann-badge-card, .ann-wrap:focus-within .ann-badge-card, .ann-wrap.ann-current .ann-badge-card { display: flex; flex-direction: column; }
+.ann-badge-text { min-width: 0; overflow-wrap: anywhere; }
+.ann-badge-actions { display: flex; justify-content: flex-end; gap: 4px; }
+.ann-badge-actions button {
+  border: 1px solid var(--line); border-radius: 5px; background: var(--paper); color: var(--ink-soft);
+  font-family: var(--font-ui); font-size: 11px; font-weight: 600; padding: 2px 8px; line-height: 1.4; cursor: pointer;
+}
+.ann-badge-actions button:hover { background: var(--desk); color: var(--ink); }
+.ann-badge-actions .ann-delete { color: var(--danger); }
+.ann-badge-actions .ann-delete:hover { background: var(--del-wash); border-color: var(--warn-border); }
 /* Keep the hover bridge: the gap between marker and card must not lose :hover */
 .ann-badge-card::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 16px; }
 
@@ -656,7 +664,7 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 .ann-wrap:not(.ann-edit) { cursor: pointer; }
 .ann-wrap:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; border-radius: 3px; }
 
-.ann-delete {
+.ann-delete-hl {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -673,9 +681,9 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
   padding: 0;
   opacity: 0.7;
 }
-.ann-delete:hover { opacity: 1; background: var(--del-wash); }
 /* Multi-block highlight blocks carry no marker; their × stays hidden until hover. */
 .ann-delete-hl { opacity: 0; vertical-align: middle; }
+.ann-delete-hl:hover { opacity: 1 !important; background: var(--del-wash); }
 .ann-hl:hover .ann-delete-hl, .ann-hl:focus-within .ann-delete-hl { opacity: 0.7; }
 
 
@@ -1005,7 +1013,7 @@ body.dragging::after {
 #diagram-menu button:hover { background: var(--bg-secondary); }
 
 /* View mode: annotations visible but inert */
-body.view-mode .ann-delete { display: none !important; }
+body.view-mode .ann-delete, body.view-mode .ann-badge-actions { display: none !important; }
 body.view-mode .ann-badge-card { padding-right: 10px; }
 body.view-mode .ann-comment-badge, body.view-mode .ann-hl { cursor: default; }
 body.view-mode #rendered-view .content { cursor: auto; }
@@ -1370,6 +1378,6 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=58"></script>
+<script src="app.js?v=59"></script>
 </body>
 </html>
