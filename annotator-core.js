@@ -494,11 +494,10 @@
     // card that CSS floats above the line on hover/focus (with the delete
     // control), so a long comment never sits inside the sentence.
     const delBtn = '<button class="ann-delete" data-ann-group="' + g + '" aria-label="Delete comment" title="Delete comment">Delete</button>';
-    const closeBtn = '<button class="ann-close" data-ann-group="' + g + '" aria-label="Close comment" title="Close">Close</button>';
     const badge = '<span class="ann-comment-badge" ' + attrs + '>' +
       '<span class="ann-badge-num">' + (e.num || '') + '</span>' +
       '<span class="ann-badge-card"><span class="ann-badge-text">' + c + '</span>' +
-      '<span class="ann-badge-actions">' + closeBtn + delBtn + '</span></span></span>';
+      '<span class="ann-badge-actions">' + delBtn + '</span></span></span>';
     if (e.kind === 'point') {
       return '<span class="ann-wrap ann-point" ' + editAttrs + '>' + badge + '</span>';
     }
@@ -559,7 +558,7 @@
     let h = html;
     // Innermost first — every regex is lazy, so nested spans must be gone
     // before their parent is matched or the parent stops at the wrong </span>.
-    h = h.replace(/<button class="ann-(?:delete|close|accept|reject)[^"]*"[^>]*>[\s\S]*?<\/button>/g, '');
+    h = h.replace(/<button class="ann-(?:delete|accept|reject)[^"]*"[^>]*>[\s\S]*?<\/button>/g, '');
     h = h.replace(/<span class="ann-badge-actions">\s*<\/span>/g, '');
     h = h.replace(/<span class="ann-badge-text">([\s\S]*?)<\/span>/g, '$1');
     h = h.replace(/<span class="ann-badge-num">[\s\S]*?<\/span>/g, '');
