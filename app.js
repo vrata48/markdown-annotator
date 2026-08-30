@@ -874,6 +874,8 @@ function renderAnnotationNavigatorText() {
   const item = annotationNavGroups[annotationNavIndex];
   if (!item) return;
   $('#ann-nav-count').textContent = (annotationNavIndex + 1) + ' / ' + annotationNavGroups.length;
+  $('#ann-nav-cycle .rail-count').textContent = String(annotationNavGroups.length);
+  $('#ann-nav-cycle').title = 'Next annotation (' + (annotationNavIndex + 1) + ' / ' + annotationNavGroups.length + ')';
   [...$('#ann-nav-list').children].forEach((button, index) => {
     button.classList.toggle('current', index === annotationNavIndex);
     if (index === annotationNavIndex) button.scrollIntoView({ block: 'nearest' });
@@ -1484,6 +1486,7 @@ $('#btn-welcome-open').addEventListener('click', pickFile);
 $('#btn-sample').addEventListener('click', openSample);
 $('#ann-nav-prev').addEventListener('click', () => focusAnnotation(annotationNavIndex - 1));
 $('#ann-nav-next').addEventListener('click', () => focusAnnotation(annotationNavIndex + 1));
+$('#ann-nav-cycle').addEventListener('click', () => focusAnnotation(annotationNavIndex + 1));
 $('#btn-open-folder').addEventListener('click', pickFolder);
 $('#btn-recent').addEventListener('click', (e) => {
   e.stopPropagation();
