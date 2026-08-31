@@ -726,9 +726,13 @@
       .map(([s, e]) => ({ type: 'pair', start: s, end: e }));
     const wordSegs = splitRangeIntoWords(src, target.start, target.end, fences);
     if (touched.length) {
+      // Prose in the selection carries the comment alone. Adding a block
+      // comment before each touched fence as well would write the comment
+      // twice (a pair group + a point group) — one action, two markers.
+      // Fence-only selections still get the block comment.
       const blocks = touched.map(([s]) => ({ type: 'blockComment', pos: s }));
-      if (blockSegs.length) cands.push({ kind: 'split+block', inserts: blockSegs.concat(blocks) });
-      if (wordSegs.length) cands.push({ kind: 'word+block', inserts: wordSegs.concat(blocks) });
+      if (blockSegs.length) cands.push({ kind: 'split', inserts: blockSegs });
+      if (wordSegs.length) cands.push({ kind: 'word-split', inserts: wordSegs });
       cands.push({ kind: 'block', inserts: blocks });
     } else {
       // Contiguous whole-range first (nicest) — boundaries trimmed of block

@@ -221,6 +221,19 @@ test('comment groups are numbered in document order and render as markers', () =
   assert.equal(Core.stripAnnotationHtml(html).replace(/\s+/g, ' ').trim(), 'a b x c gone d yz');
 });
 
+test('a selection spanning prose and a code fence comments the prose once', () => {
+  const src = ['Intro line here.', '', '```js', 'const x = 1;', '```', ''].join('\n');
+  const r = Core.analyzeTarget(src, { type: 'range', start: 0, end: src.length - 1 }, null);
+  assert.equal(r.supported, true);
+  assert.ok(r.inserts.every(i => i.type === 'pair'), 'fence should not add a blockComment when prose exists');
+  const out = Core.applyInserts(src, r.inserts, 'note');
+  assert.equal((out.match(/\{>>/g) || []).length, 1);
+  // Fence-only selection still lands as a block comment before the fence.
+  const fenceOnly = Core.analyzeTarget(src, { type: 'range', start: src.indexOf('const'), end: src.indexOf('= 1;') }, null);
+  assert.equal(fenceOnly.supported, true);
+  assert.deepEqual(fenceOnly.inserts.map(i => i.type), ['blockComment']);
+});
+
 test('preprocess: placeholder cannot collide with literal document text', () => {
   const literal = '​ANN0​';
   const src = literal + ' {== alpha ==}{>> note <<}';
