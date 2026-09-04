@@ -72,7 +72,7 @@ The app creates comments. Suggested edits are expected to come from an external 
 - **Share** turns the open document into a live session: send the link, and everyone with it reads and annotates the same document in real time.
 - Comments made in a session are signed with the author's name (`{>>@Name: comment<<}`), so the file stays readable anywhere.
 - The document is encrypted in the browser with a key that travels only in the link's `#fragment`. The relay stores ciphertext and forgets the session a day after the last change.
-- Disk stays the deliverable: the host's **Save** writes the session to the original file, guests save a copy wherever they like. Stopping the session leaves everyone with an editable local copy.
+- Disk stays the deliverable: the host's **Save** writes the session to the original file (with auto-save on, the file follows the session by itself), guests save a copy wherever they like. Stopping the session leaves everyone with an editable local copy.
 - The relay is a tiny Cloudflare Worker in [`relay/`](relay/README.md); deploy it once with `npx wrangler deploy` and point `RELAY_URL` in `collab.js` at it. Without a relay the rest of the app works exactly as before.
 
 ## Privacy and security

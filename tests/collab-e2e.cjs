@@ -85,7 +85,7 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     const link = await host.locator('#share-link').inputValue();
     assert(link.startsWith(base + '#share=') && new URL(link).hash.split('.').length === 2, 'share link is malformed: ' + link);
     assert(await host.evaluate(() => Collab.host && $('#btn-share-stop').hidden === false), 'host controls missing');
-    assert(await host.evaluate(() => $('#btn-autosave').disabled && $('#btn-refresh').disabled), 'disk controls still live while sharing');
+    assert(await host.evaluate(() => !$('#btn-autosave').disabled && $('#btn-refresh').disabled && $('#btn-autoreload').disabled), 'reload controls still live, or auto-save unavailable, while sharing');
 
     // ── Guest joins by link ──
     await guest.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -110,13 +110,23 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     assert(await guest.evaluate(() => document.querySelector('#content').textContent.includes('Annotation review brief') === false
       && state.rawMarkdown.startsWith('<!-- markdown-annotator:review:start -->')), 'guest brief is missing or rendered');
 
+    // ── Auto-save keeps the host's file in step with the session ──
+    const onDisk = (page) => page.evaluate(async () => (await (await state.fileHandle.getFile()).text()));
+    assert(!(await onDisk(host)).includes('@Ada: Slow'), 'file was written before auto-save was turned on');
+    await host.locator('#btn-autosave').click();
+    assert(await host.evaluate(() => !$('#btn-autosave').disabled && $('#btn-autosave').classList.contains('on')), 'auto-save toggle is unavailable while sharing');
+    await host.waitForFunction(async () => (await (await state.fileHandle.getFile()).text()).includes('@Ada: Slow') && !state.dirty, null, { timeout: 15000 });
+    await comment(guest, 'over', 'Auto');
+    await host.waitForFunction(async () => (await (await state.fileHandle.getFile()).text()).includes('@Bob: Auto') && !state.dirty, null, { timeout: 15000 });
+    assert(await host.evaluate(() => $('#btn-refresh').disabled && $('#btn-autoreload').disabled), 'reload controls came back while sharing');
+
     // ── Concurrent comments both survive ──
     await Promise.all([comment(host, 'quick', 'From Ada'), comment(guest, 'second', 'From Bob')]);
     await hasText(host, '@Bob: From Bob');
     await hasText(guest, '@Ada: From Ada');
     const same = await Promise.all([host, guest].map(p => p.evaluate(() => state.rawMarkdown)));
     assert(same[0] === same[1], 'host and guest diverged after concurrent comments');
-    assert(await host.evaluate(() => AnnotatorCore.scanAnnotations(state.rawMarkdown).length === 4), 'expected four annotations after concurrent comments');
+    assert(await host.evaluate(() => AnnotatorCore.scanAnnotations(state.rawMarkdown).length === 5), 'expected five annotations after concurrent comments');
 
     // ── Undo is per user: Bob's Ctrl+Z removes Bob's last comment only ──
     await guest.keyboard.press('Control+z');
@@ -133,7 +143,7 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     await guest.locator('#annotation-input').fill('Still here');
     await guest.locator('#btn-ann-save').click();
     await hasText(host, '{== jumps ==}{>> @Bob: Still here <<}');
-    assert(await host.evaluate(() => AnnotatorCore.scanAnnotations(state.rawMarkdown).length === 5
+    assert(await host.evaluate(() => AnnotatorCore.scanAnnotations(state.rawMarkdown).length === 6
       && AnnotatorCore.stripAll(state.rawMarkdown).includes('The quick brown fox jumps over the lazy dog.')), 'document corrupted by a rebased comment');
 
     // ── Saving: host writes the session to its file; guest saves a copy ──

@@ -324,7 +324,9 @@ refreshAutoReloadButton();
 function getAutoSave() { return getFlag('auto-save'); }
 // The one definition of "auto-save covers the open document" — the scheduler,
 // the timer, saveFile and the toolbar must all agree on it.
-function autoSaveActive() { return getAutoSave() && !!state.fileHandle && !Collab.active; }
+// Sharing doesn't change it: with a file behind the document, auto-save keeps
+// the disk copy in step with the session (remote changes schedule it too).
+function autoSaveActive() { return getAutoSave() && !!state.fileHandle; }
 function refreshAutoSaveButton() {
   const on = getAutoSave();
   const btn = $('#btn-autosave');
@@ -1224,11 +1226,13 @@ function updateToolbar() {
   // auto-save also covering the edit, dirty is transient (the debounce window),
   // so the button stays dark unless the unsaved state will actually persist.
   const dirtyLasting = state.dirty && (!autoSaveActive() || autoSaveBlocked || state.diskMoved);
-  // Reload/watch/auto-save need a file behind the document, and step aside
-  // while a shared session owns it (disk is only an export target then).
-  const noDisk = noFile || !state.fileHandle || Collab.active;
-  $('#btn-refresh').disabled = noDisk || (getAutoReload() && !dirtyLasting);
-  $('#btn-autoreload').disabled = noDisk;
+  // Reload/watch/auto-save need a file behind the document. Reload and the
+  // watcher also step aside while a shared session owns it (they would push
+  // the disk copy over everyone's session); auto-save keeps working, since
+  // it only flows the other way.
+  const noDisk = noFile || !state.fileHandle;
+  $('#btn-refresh').disabled = noDisk || Collab.active || (getAutoReload() && !dirtyLasting);
+  $('#btn-autoreload').disabled = noDisk || Collab.active;
   $('#btn-autosave').disabled = noDisk;
   refreshAutoSaveButton();  // its knob/title reflect the open file's type
   $('#btn-export').disabled = noFile;

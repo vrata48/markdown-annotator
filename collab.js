@@ -461,7 +461,9 @@
     const next = Core.syncReviewBrief(s.text.toString());
     if (next === state.rawMarkdown) return;
     state.rawMarkdown = next;
-    state.dirty = true;  // whatever was saved locally is now behind the session
+    // Whatever was saved locally is now behind the session; markDirty also
+    // schedules auto-save (its pushLocal is a no-op here — state mirrors the doc).
+    markDirty();
     rebasePending();
     render();
   }
@@ -551,7 +553,8 @@
       state.displayPath = handle.name + ' — shared session';
       state.sample = false;
       state.lastModified = file.lastModified;
-      state.dirty = onDisk !== state.rawMarkdown;
+      state.dirty = false;
+      if (onDisk !== state.rawMarkdown) markDirty();  // schedules auto-save when it is on
       updateToolbar();
     } catch (_) { /* dead handle — the guest-style Save as still works */ }
   }

@@ -34,9 +34,11 @@ session is a temporary, encrypted meeting point.
 3. Everyone annotates as usual; changes appear on other screens within a
    second. Concurrent comments both survive; numbering follows document order
    everywhere. Ctrl+Z undoes only your own changes.
-4. **Disk is an export.** The host's Ctrl+S writes the session to its file.
-   Guests use Save to pick a location. The disk watcher, auto-save and reload
-   are disabled while a session is live.
+4. **Disk is an export.** The host's Ctrl+S writes the session to its file,
+   and with auto-save on the file follows the session by itself (remote
+   changes schedule a save like local ones). Guests use Save to pick a
+   location, after which auto-save applies to them too. The disk watcher and
+   reload are disabled while a session is live: they flow the wrong way.
 5. Stop sharing (host) deletes the room; guests keep an editable local copy
    and see a banner. A guest can leave at any time. The host closing the tab
    does not end the room, and a host refresh rejoins it with the file handle
