@@ -100,6 +100,19 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     await host.waitForFunction(() => $('#share-label').textContent === 'Sharing · 2', null, { timeout: 20000 });
     await host.waitForFunction(() => [...document.querySelectorAll('#share-peers .share-peer')].some(el => el.textContent === 'Bob'), null, { timeout: 20000 });
 
+    // ── A second tab of the same person is not a second person ──
+    const guestTab = await guest.context().newPage();
+    guestTab.on('pageerror', e => errors.push('Bob2: ' + e.message));
+    await guestTab.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await ready(guestTab);
+    await guestTab.locator('#share-dialog.visible').waitFor();  // a fresh tab still asks (sessionStorage is per tab)
+    await guestTab.locator('#share-ok').click();
+    await guestTab.locator('body.file-open.sharing').waitFor({ timeout: 30000 });
+    await host.waitForFunction(() => [...document.querySelectorAll('#share-peers .share-peer')].some(el => el.textContent === 'Bob · 2 tabs'), null, { timeout: 20000 });
+    assert(await host.evaluate(() => $('#share-label').textContent === 'Sharing · 2'), 'a second tab counted as another person');
+    await guestTab.close();
+    await host.waitForFunction(() => [...document.querySelectorAll('#share-peers .share-peer')].some(el => el.textContent === 'Bob'), null, { timeout: 20000 });
+
     // ── Comments flow both ways, signed by their authors ──
     await comment(guest, 'fox', 'Check animal');
     await hasText(guest, '{== fox ==}{>> @Bob: Check animal <<}');

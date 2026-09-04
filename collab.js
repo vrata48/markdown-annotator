@@ -32,6 +32,7 @@
   const PRESENCE_MS = 20000;
   const SNAPSHOT_AFTER = 40;   // compact the relay log once this many updates pile up
   const NAME_KEY = 'share-name';
+  const UID_KEY = 'share-uid';   // localStorage: one id per browser profile, so two tabs are one person
   const HOST_KEY = 'share-host';      // sessionStorage: the room this tab created
   const JOINED_KEY = 'share-joined';  // sessionStorage: the room this tab last took part in
 
@@ -67,6 +68,17 @@
   }
   function setName(name) {
     try { localStorage.setItem(NAME_KEY, name); } catch (_) {}
+  }
+  let sessionUid = '';  // fallback when storage is unavailable: at least stable per tab
+  function getUid() {
+    try {
+      let uid = localStorage.getItem(UID_KEY);
+      if (!uid) { uid = b64url.encode(crypto.getRandomValues(new Uint8Array(9))); localStorage.setItem(UID_KEY, uid); }
+      return uid;
+    } catch (_) {
+      if (!sessionUid) sessionUid = b64url.encode(crypto.getRandomValues(new Uint8Array(9)));
+      return sessionUid;
+    }
   }
   function hostRoom() {
     try { return sessionStorage.getItem(HOST_KEY) || ''; } catch (_) { return ''; }
@@ -368,7 +380,7 @@
         session.cid = m.c;
         session.replaying = true;
         session.peers.clear();
-        for (const c of m.peers || []) session.peers.set(c, { name: '', ts: Date.now() });
+        for (const c of m.peers || []) session.peers.set(c, { name: '', uid: '', ts: Date.now() });
         refreshUi();
         break;
       case 's':
@@ -399,7 +411,7 @@
         if (m.count >= SNAPSHOT_AFTER) sendSnapshot(session, m.n);
         break;
       case 'join':
-        session.peers.set(m.c, { name: '', ts: Date.now() });
+        session.peers.set(m.c, { name: '', uid: '', ts: Date.now() });
         sendPresence();
         refreshUi();
         break;
@@ -411,7 +423,9 @@
         let info = null;
         try { info = JSON.parse(utf8.dec.decode(await decrypt(session.cryptoKey, m.d))); } catch (_) {}
         if (s !== session) return;
-        if (info && typeof info.name === 'string') session.peers.set(m.c, { name: info.name.slice(0, 40), ts: Date.now() });
+        if (info && typeof info.name === 'string') {
+          session.peers.set(m.c, { name: info.name.slice(0, 40), uid: typeof info.uid === 'string' ? info.uid.slice(0, 32) : '', ts: Date.now() });
+        }
         refreshUi();
         break;
       }
@@ -443,7 +457,7 @@
     const session = s;
     session.sendChain = session.sendChain.then(async () => {
       if (s !== session) return;
-      const d = await encrypt(session.cryptoKey, utf8.enc.encode(JSON.stringify({ name: session.name })));
+      const d = await encrypt(session.cryptoKey, utf8.enc.encode(JSON.stringify({ name: session.name, uid: getUid() })));
       if (s === session && session.ws && session.ws.readyState === WebSocket.OPEN) session.ws.send(JSON.stringify({ t: 'p', d }));
     }).catch(() => {});
   }
@@ -660,10 +674,24 @@
   }
   function closeMenu() { menu().classList.remove('visible'); menuOpen = false; }
 
+  // Connections grouped into people: the same browser profile (uid) in several
+  // tabs is one person; a peer that hasn't sent presence yet counts on its own.
+  function people() {
+    const byId = new Map();
+    byId.set(getUid(), { name: s.name, tabs: 1, me: true });
+    for (const [cid, p] of s.peers) {
+      const id = p.uid || 'conn:' + cid;
+      const entry = byId.get(id);
+      if (entry) entry.tabs++;
+      else byId.set(id, { name: p.name, tabs: 1, me: false });
+    }
+    return [...byId.values()];
+  }
+
   function statusText() {
     if (!s) return '';
-    const people = s.peers.size + 1;
-    const who = people === 1 ? 'only you so far' : people + ' people';
+    const count = people().length;
+    const who = count === 1 ? 'only you so far' : count + ' people';
     if (s.status === 'connected') return 'Live · ' + who;
     if (s.status === 'connecting') return 'Connecting…';
     return 'Reconnecting… changes are kept until the relay is back';
@@ -675,7 +703,7 @@
     const on = !!s;
     btn.classList.toggle('on', on);
     btn.classList.toggle('offline', on && s.status !== 'connected');
-    const count = on ? s.peers.size + 1 : 0;
+    const count = on ? people().length : 0;
     $('#share-label').textContent = on ? 'Sharing · ' + count : 'Share';
     $('#share-count').textContent = String(count);
     btn.title = on ? statusText() + ' — open the share panel' : 'Share this document for live annotation';
@@ -684,14 +712,10 @@
     $('#share-link').value = shareLink(s.room, s.key);
     const list = $('#share-peers');
     list.innerHTML = '';
-    const me = document.createElement('div');
-    me.className = 'share-peer';
-    me.textContent = s.name + ' (you)';
-    list.appendChild(me);
-    for (const p of s.peers.values()) {
+    for (const p of people()) {
       const el = document.createElement('div');
       el.className = 'share-peer';
-      el.textContent = p.name || 'Joining…';
+      el.textContent = (p.name || 'Joining…') + (p.me ? ' (you)' : '') + (p.tabs > 1 ? ' · ' + p.tabs + ' tabs' : '');
       list.appendChild(el);
     }
     $('#btn-share-stop').hidden = !s.host;
