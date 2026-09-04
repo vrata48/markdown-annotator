@@ -768,6 +768,9 @@ async function saveFile(opts) {
   const auto = !!(opts && opts.auto);  // timer-fired: no gestures, no modal dialogs
   if (!state.fileOpen) return;
   if (savePending) { scheduleAutoSave(); return; }  // in flight — retry shortly if auto-save is on
+  // A refreshed host's file only needs its permission back — this click is
+  // the gesture that can ask for it; only then fall back to the picker.
+  if (!state.fileHandle && !auto && Collab.active) await Collab.reattachFile();
   // No file behind the document (the sample, or a shared session joined by
   // link): the first save picks where it goes.
   if (!state.fileHandle) {

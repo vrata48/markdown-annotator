@@ -126,7 +126,8 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     await hasText(guest, '@Ada: From Ada');
     const same = await Promise.all([host, guest].map(p => p.evaluate(() => state.rawMarkdown)));
     assert(same[0] === same[1], 'host and guest diverged after concurrent comments');
-    assert(await host.evaluate(() => AnnotatorCore.scanAnnotations(state.rawMarkdown).length === 5), 'expected five annotations after concurrent comments');
+    const afterConcurrent = await host.evaluate(() => AnnotatorCore.scanAnnotations(state.rawMarkdown).map(it => it.kind + ':' + (it.comment || it.text)));
+    assert(afterConcurrent.length === 5, 'expected five annotations after concurrent comments, got ' + JSON.stringify(afterConcurrent));
 
     // ── Undo is per user: Bob's Ctrl+Z removes Bob's last comment only ──
     await guest.keyboard.press('Control+z');
@@ -159,12 +160,14 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     });
     assert(guestSaved.text === hostSaved && guestSaved.still, 'guest "save as" did not write the shared document');
 
-    // ── Host refresh: rejoins the room and gets its file back as save target ──
+    // ── Host refresh: rejoins silently and gets its file back as save target ──
     await host.reload({ waitUntil: 'domcontentloaded' });
     await ready(host);
-    await host.locator('#share-dialog.visible').waitFor();
-    await host.locator('#share-ok').click();
+    assert(await host.evaluate(() => document.body.classList.contains('joining') && getComputedStyle($('#welcome')).visibility === 'hidden'),
+      'refresh flashed the welcome screen instead of a connecting state');
     await host.locator('body.file-open.sharing').waitFor({ timeout: 30000 });
+    assert(await host.locator('#share-dialog.visible').count() === 0, 'refresh asked for the name again');
+    assert(await host.evaluate(() => !document.body.classList.contains('joining')), 'connecting state stuck after joining');
     await host.waitForFunction(() => Collab.host && state.fileHandle && state.fileName === 'collab-host.md', null, { timeout: 20000 });
     assert(await host.evaluate(() => state.rawMarkdown.includes('@Bob: Still here') && !state.dirty), 'host refresh lost the session state or misreported dirty');
     await comment(guest, 'paragraph', 'After refresh');

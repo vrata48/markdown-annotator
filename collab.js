@@ -32,13 +32,16 @@
   const PRESENCE_MS = 20000;
   const SNAPSHOT_AFTER = 40;   // compact the relay log once this many updates pile up
   const NAME_KEY = 'share-name';
-  const HOST_KEY = 'share-host';  // sessionStorage: the room this tab created
+  const HOST_KEY = 'share-host';      // sessionStorage: the room this tab created
+  const JOINED_KEY = 'share-joined';  // sessionStorage: the room this tab last took part in
 
   const $ = (sel) => document.querySelector(sel);
   const Helpers = () => window.AnnotatorAppHelpers;
   const utf8 = { enc: new TextEncoder(), dec: new TextDecoder() };
 
   let s = null;          // the live session (see createSession)
+  let selecting = false; // a mouse selection is in progress in the rendered view
+  let idleWaiters = [];  // frames held back until it ends
   let pendingAttach = null;  // host refresh: the tab's file handle, attached once the session is adopted
   let yjsPromise = null;
   let menuOpen = false;
@@ -49,7 +52,7 @@
     get host() { return !!(s && s.host); },
     get name() { return s ? s.name : getName(); },
     init, share, stopSharing, leave, pushLocal, undo, canUndo,
-    anchorPending, rebasePending, anchorEdit, attachHandle, refreshUi,
+    anchorPending, rebasePending, anchorEdit, attachHandle, reattachFile, refreshUi,
     session: () => s,
   };
 
@@ -70,6 +73,12 @@
   }
   function setHostRoom(room) {
     try { room ? sessionStorage.setItem(HOST_KEY, room) : sessionStorage.removeItem(HOST_KEY); } catch (_) {}
+  }
+  function joinedRoom() {
+    try { return sessionStorage.getItem(JOINED_KEY) || ''; } catch (_) { return ''; }
+  }
+  function setJoinedRoom(room) {
+    try { room ? sessionStorage.setItem(JOINED_KEY, room) : sessionStorage.removeItem(JOINED_KEY); } catch (_) {}
   }
 
   const b64url = {
@@ -158,6 +167,7 @@
     }, LOCAL);
     s.undo.clear();
     setHostRoom(room);
+    setJoinedRoom(room);
     history.replaceState(null, '', Helpers().shareHash(room, s.key));
     enterSession();
     connect(true);
@@ -178,8 +188,12 @@
         clearHash();
         return;
       }
-      const name = await askName('join');
+      // A refresh of a tab that was already in this room reconnects quietly;
+      // only a link opened afresh asks who you are.
+      const rejoining = joinedRoom() === parsed.room && !!getName();
+      const name = rejoining ? getName() : await askName('join');
       if (name == null) { clearHash(); return; }
+      setConnecting(true);
       let Y;
       try { Y = await loadYjs(); }
       catch (_) { await showAppAlert('The collaboration library could not be loaded. Check your connection and reload the link.', 'Cannot join'); return; }
@@ -188,13 +202,22 @@
       s.name = name;
       connect(false);
     } finally {
-      if (!s) Collab.joining = false;
+      if (!s) { Collab.joining = false; setConnecting(false); }
     }
+  }
+
+  // While a link is being opened the welcome screen would flash "no file";
+  // show a connecting state instead (body.joining hides it, the toast says why).
+  function setConnecting(on) {
+    document.body.classList.toggle('joining', on);
+    if (on) setToast('Connecting to the shared session…', 'info');
+    else $('#notice').classList.remove('show');
   }
 
   function enterSession() {
     Collab.active = true;
     Collab.joining = false;
+    setConnecting(false);
     document.body.classList.add('sharing');
     s.timers.presence = setInterval(sendPresence, PRESENCE_MS);
     updateToolbar();
@@ -219,6 +242,7 @@
     clearUndo();
     s.adopted = true;
     s.undo.clear();
+    setJoinedRoom(s.room);
     render({ fresh: true });
     enterSession();
     showNotice('Joined the shared session', 'ok');
@@ -238,6 +262,7 @@
     if (hostRoom() === session.room) setHostRoom('');
     Collab.active = false;
     Collab.joining = false;
+    setConnecting(false);
     document.body.classList.remove('sharing');
     clearHash();
     closeMenu();
@@ -348,6 +373,11 @@
         break;
       case 's':
       case 'u': {
+        // Applying a remote change re-renders the sheet, which would wreck a
+        // selection being dragged right now; hold it until the mouse is up
+        // and the comment box has anchored itself (then the anchors move).
+        if (selecting) await new Promise(resolve => idleWaiters.push(resolve));
+        if (s !== session) return;
         let bytes;
         try { bytes = await decrypt(session.cryptoKey, m.d); }
         catch (_) { badKey(); return; }
@@ -544,7 +574,13 @@
     if (!s || !s.adopted) { pendingAttach = handle; return; }
     if (!s.host) return;  // a guest tab that used to hold another file must not save over it
     try {
-      if (await handle.queryPermission({ mode: 'read' }) !== 'granted') return;
+      if (await handle.queryPermission({ mode: 'read' }) !== 'granted') {
+        // Chrome forgets the grant on refresh and re-asking needs a click:
+        // the first Save does it (reattachFile) instead of opening a picker.
+        s.reattach = handle;
+        showNotice('Your file needs permission again after the refresh — Save (Ctrl+S) reconnects it.', 'info');
+        return;
+      }
       const file = await handle.getFile();
       const onDisk = await file.text();
       if (!s || !s.adopted) return;
@@ -557,6 +593,19 @@
       if (onDisk !== state.rawMarkdown) markDirty();  // schedules auto-save when it is on
       updateToolbar();
     } catch (_) { /* dead handle — the guest-style Save as still works */ }
+  }
+
+  // From a Save gesture: ask for the refreshed host's file again and attach it.
+  async function reattachFile() {
+    if (!s || !s.reattach) return false;
+    const handle = s.reattach;
+    try {
+      if (await handle.requestPermission({ mode: 'readwrite' }) !== 'granted') return false;
+    } catch (_) { return false; }
+    if (!s || s.reattach !== handle) return false;
+    s.reattach = null;
+    await attachHandle(handle);
+    return !!state.fileHandle;
   }
 
   // ── UI ─────────────────────────────────────────────────────
@@ -650,6 +699,19 @@
   }
 
   function init() {
+    renderedView.addEventListener('mousedown', (e) => {
+      if (e.button === 0 && e.target.closest('#content')) selecting = true;
+    });
+    document.addEventListener('mouseup', () => {
+      if (!selecting) return;
+      // app.js opens the comment box 10ms after mouseup; let it anchor first.
+      setTimeout(() => {
+        selecting = false;
+        const waiters = idleWaiters;
+        idleWaiters = [];
+        waiters.forEach(resolve => resolve());
+      }, 60);
+    });
     $('#btn-share').addEventListener('click', (e) => {
       e.stopPropagation();
       if (!s) { share(); return; }

@@ -805,6 +805,8 @@ body.view-mode .ann-edit-controls { display: none !important; }
 }
 
 /* Welcome screen — the app always shows paper: the start page is a sheet */
+/* Opening a share link: no "no file" welcome flash while the session syncs. */
+body.joining #welcome { visibility: hidden; }
 #welcome {
   max-width: 640px;
   margin: 28px auto 40px;
@@ -1478,7 +1480,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="collab.js?v=3"></script>
-<script src="app.js?v=63"></script>
+<script src="collab.js?v=4"></script>
+<script src="app.js?v=64"></script>
 </body>
 </html>
