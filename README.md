@@ -5,7 +5,7 @@
 
 Markdown Annotator is a browser-only review tool for Markdown files. Select text, leave comments, review suggested edits, and save the feedback directly into the document as human- and LLM-readable [CriticMarkup](https://criticmarkup.com/).
 
-There is no application server, app-specific account, build step, or upload pipeline. The runtime is a static HTML/JavaScript app.
+There is no app-specific account, build step, or upload pipeline. The runtime is a static HTML/JavaScript app. The optional shared-session feature adds one small relay you deploy yourself (see below); everything else runs in the browser.
 
 ## Quick start
 
@@ -67,9 +67,17 @@ The app creates comments. Suggested edits are expected to come from an external 
 - External-change detection, optional auto-reload, and conflict warnings for unsaved work.
 - Optional debounced auto-save for local files. Permission prompts only happen during a manual save.
 
+### Shared sessions
+
+- **Share** turns the open document into a live session: send the link, and everyone with it reads and annotates the same document in real time.
+- Comments made in a session are signed with the author's name (`{>>@Name: comment<<}`), so the file stays readable anywhere.
+- The document is encrypted in the browser with a key that travels only in the link's `#fragment`. The relay stores ciphertext and forgets the session a day after the last change.
+- Disk stays the deliverable: the host's **Save** writes the session to the original file, guests save a copy wherever they like. Stopping the session leaves everyone with an editable local copy.
+- The relay is a tiny Cloudflare Worker in [`relay/`](relay/README.md); deploy it once with `npx wrangler deploy` and point `RELAY_URL` in `collab.js` at it. Without a relay the rest of the app works exactly as before.
+
 ## Privacy and security
 
-- Local document contents are read from and written to the selected file handle; they are not uploaded by the app.
+- Local document contents are read from and written to the selected file handle; they are not uploaded by the app. Shared sessions send only end-to-end encrypted updates to the relay.
 - Markdown raw HTML is disabled, and the app ships a restrictive Content Security Policy.
 - Markdown rendering libraries are pinned to specific CDN versions; classic scripts and styles use integrity hashes where the browser supports them.
 

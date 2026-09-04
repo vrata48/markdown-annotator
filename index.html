@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#C7D0DB">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https: http:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https: http:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' wss://*.workers.dev ws://127.0.0.1:* ws://localhost:*; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
 <title>Markdown Annotator</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
@@ -18,7 +18,7 @@
         integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"
         integrity="sha384-wLhprpjsmjc/XYIcF+LpMxd8yS1gss6jhevOp6F6zhiIoFK6AmHtm4bGKtehTani" crossorigin="anonymous"></script>
-<script src="app-helpers.js?v=5"></script>
+<script src="app-helpers.js?v=6"></script>
 <script src="annotator-core.js?v=16"></script>
 <!-- Mermaid ships as an ES module. Keep the loader external so the CSP can
      block inline scripts and event handlers in untrusted Markdown. -->
@@ -171,7 +171,18 @@ body:not(.file-open) #rail #btn-refresh,
 body:not(.file-open) #rail #btn-autoreload,
 body:not(.file-open) #rail #btn-mode-toggle,
 body:not(.file-open) #rail #btn-raw-toggle,
-body:not(.file-open) #rail #btn-export { display: none; }
+body:not(.file-open) #rail #btn-export,
+body:not(.file-open) #rail #btn-share { display: none; }
+/* Share: the count badge only in the collapsed rail (the label carries it otherwise);
+   a stalled connection shows as a red dot on the button. */
+#rail #btn-share { position: relative; }
+#rail #btn-share .rail-count { display: none; }
+body.rail-collapsed #rail #btn-share.on .rail-count { display: block; }
+#rail #btn-share.offline::after {
+  content: ''; position: absolute; left: 24px; top: 6px; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--red-pen); border: 2px solid var(--desk-deep);
+}
+body.rail-collapsed #rail #btn-share.offline::after { left: auto; right: 1px; bottom: 1px; top: auto; }
 #rail button svg, #rail a.icon-btn svg {
   width: 18px; height: 18px;
   flex-shrink: 0;
@@ -1120,6 +1131,55 @@ body.view-mode #rendered-view .content { cursor: auto; }
 #message-dialog p { font-size: 13.5px; line-height: 1.5; color: var(--ink); }
 #message-dialog .gl-actions { justify-content: flex-end; }
 
+/* Share panel (flies out beside the rail's Share button) */
+#share-menu {
+  position: fixed;
+  z-index: 3500;
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+  width: min(360px, calc(100vw - 80px));
+  font-size: 12.5px;
+  color: var(--ink);
+}
+#share-menu.visible { display: flex; }
+#share-menu .share-title { font-weight: 650; font-size: 13px; }
+#share-status { color: var(--ink-soft); }
+#share-menu .share-link { display: flex; gap: 6px; }
+#share-link {
+  flex: 1; min-width: 0;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--code-bg); color: var(--ink);
+  font: 12px var(--font-mono); padding: 6px 8px; outline: none;
+}
+#share-link:focus { border-color: var(--pen); }
+#share-menu button { border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--ink); font: 600 12px var(--font-ui); padding: 6px 10px; cursor: pointer; }
+#share-menu button:hover { background: var(--pen-wash); color: var(--pen); }
+#share-menu #btn-share-copy { background: var(--pen); border-color: var(--pen); color: var(--on-pen); }
+#share-menu #btn-share-copy:hover { background: var(--pen-deep); color: var(--on-pen); }
+#share-peers { display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow-y: auto; }
+#share-peers .share-peer { display: flex; align-items: center; gap: 7px; padding: 2px 0; }
+#share-peers .share-peer::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
+#share-menu .share-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+#share-menu #btn-share-stop:hover { background: var(--warn-bg); border-color: var(--warn-border); color: var(--danger); }
+#share-menu .share-note { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--ink-soft); }
+#share-dialog p { font-size: 13px; line-height: 1.5; color: var(--ink); margin: 0; }
+#share-dialog .gl-actions { justify-content: flex-end; }
+#share-banner {
+  display: none; align-items: center; gap: 10px;
+  position: fixed; left: 50%; top: 14px; transform: translateX(-50%);
+  z-index: 3000; max-width: min(640px, calc(100vw - 32px));
+  background: var(--pen-wash); border: 1px solid var(--wash-border); color: var(--ink);
+  border-radius: 8px; padding: 9px 12px; font-size: 13px; box-shadow: var(--shadow);
+}
+#share-banner button { border: 1px solid var(--wash-border); border-radius: 6px; background: var(--paper); color: var(--ink); font: 600 12px var(--font-ui); padding: 4px 8px; cursor: pointer; }
+#share-banner button:hover { background: var(--wash-hover); }
+
 /* Recent files dropdown */
 #recent-menu {
   position: fixed;
@@ -1245,6 +1305,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
     <g id="i-github"><path d="M11.8 15.5v-2.2c0-.7-.2-1.2-.5-1.5 1.7-.2 3.4-.9 3.4-3.7 0-.8-.3-1.5-.8-2 .1-.2.4-1-.1-2 0 0-.6-.2-2.1.8a7 7 0 0 0-3.6 0c-1.5-1-2.1-.8-2.1-.8-.5 1-.2 1.8-.1 2-.5.5-.8 1.2-.8 2 0 2.8 1.7 3.5 3.4 3.7-.2.2-.4.6-.5 1.1-.4.2-1.5.5-2.2-.6-.4-.7-1.1-.8-1.1-.8"/><path d="M6.7 14.2c-.1.5-.1 1-.1 1.3"/></g>
     <g id="i-zap"><path d="M9.8 2.2 3.9 10h3.7l-1.4 5.8L12.1 8H8.4z"/></g>
     <g id="i-comment"><path d="M3 3.5h12v8H8l-3.5 3v-3H3z"/></g>
+    <g id="i-share"><circle cx="13.5" cy="4" r="2"/><circle cx="4.5" cy="9" r="2"/><circle cx="13.5" cy="14" r="2"/><path d="M6.3 8 11.7 5M6.3 10l5.4 3"/></g>
     <g id="i-chev-l"><path d="M11 4 6 9l5 5"/></g>
     <g id="i-chev-r"><path d="M7 4l5 5-5 5"/></g>
   </defs>
@@ -1265,6 +1326,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button id="btn-mode-toggle" title="View mode: rendered and read-only (Ctrl+E)" aria-label="Toggle view mode" aria-pressed="false"><svg viewBox="0 0 18 18"><use href="#i-eye"/></svg><span>View mode</span><span class="mode-knob"><span></span></span></button>
   <button id="btn-raw-toggle" title="Raw source: exact Markdown, read-only (Ctrl+Shift+E)" aria-label="Toggle raw source" aria-pressed="false"><svg viewBox="0 0 18 18"><use href="#i-code"/></svg><span>Raw source</span></button>
   <button id="btn-export" title="Export a clean copy (annotations removed)" aria-label="Export"><svg viewBox="0 0 18 18"><use href="#i-export"/></svg><span>Export</span></button>
+  <button id="btn-share" title="Share this document for live annotation" aria-label="Share"><svg viewBox="0 0 18 18"><use href="#i-share"/></svg><span id="share-label">Share</span><span class="rail-count" id="share-count"></span></button>
   <div id="rail-ann" hidden>
     <div class="rail-divider"></div>
     <div id="rail-ann-head">
@@ -1370,6 +1432,36 @@ body.view-mode #rendered-view .content { cursor: auto; }
   </div>
 </div>
 
+<!-- Shared session: name prompt before sharing or joining -->
+<div id="share-dialog" class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="share-dialog-title" aria-describedby="share-dialog-text">
+  <header><span id="share-dialog-title">Share this document</span></header>
+  <p id="share-dialog-text"></p>
+  <label class="gl-field"><span>Your name</span><input id="share-name" type="text" maxlength="40" autocomplete="nickname" placeholder="Shown beside your comments"></label>
+  <div class="gl-actions">
+    <button id="share-cancel" class="dialog-secondary" type="button">Cancel</button>
+    <button id="share-ok" class="dialog-primary" type="button">Start sharing</button>
+  </div>
+</div>
+
+<!-- Shared session panel (flies out beside the rail's Share button) -->
+<div id="share-menu" role="dialog" aria-label="Shared session">
+  <div class="share-title">Shared session</div>
+  <div id="share-status"></div>
+  <div class="share-link"><input id="share-link" type="text" readonly aria-label="Share link"><button id="btn-share-copy" type="button">Copy</button></div>
+  <div id="share-peers" aria-label="People in this session"></div>
+  <div class="share-actions">
+    <button id="btn-share-stop" type="button">Stop sharing</button>
+    <button id="btn-share-leave" type="button">Leave session</button>
+  </div>
+  <p class="share-note">Anyone with the link can read and annotate. The document is encrypted in the browser; the relay keeps only ciphertext and drops the session a day after the last change. Save keeps a copy on your disk.</p>
+</div>
+
+<!-- Shared session ended while we held a copy -->
+<div id="share-banner" role="status">
+  <span id="share-banner-msg"></span>
+  <button id="btn-share-banner-dismiss" type="button" title="Dismiss">&times;</button>
+</div>
+
 <!-- Recent files dropdown (flies out beside the rail's open button) -->
 <div id="recent-menu"></div>
 
@@ -1386,6 +1478,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="app.js?v=61"></script>
+<script src="collab.js?v=2"></script>
+<script src="app.js?v=62"></script>
 </body>
 </html>

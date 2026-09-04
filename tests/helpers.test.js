@@ -42,3 +42,46 @@ test('annotationGroups returns one compact entry per logical group', () => {
   ]);
 });
 
+
+test('textDiff finds the one splice between two sources', () => {
+  assert.equal(Helpers.textDiff('same', 'same'), null);
+  assert.deepEqual(Helpers.textDiff('a fox jumps', 'a {== fox ==}{>> hm <<} jumps'),
+    { index: 2, remove: 3, insert: '{== fox ==}{>> hm <<}' });
+  assert.deepEqual(Helpers.textDiff('keep {>> note <<}this', 'keep this'), { index: 5, remove: 12, insert: '' });
+  assert.deepEqual(Helpers.textDiff('', 'new'), { index: 0, remove: 0, insert: 'new' });
+  assert.deepEqual(Helpers.textDiff('old', ''), { index: 0, remove: 3, insert: '' });
+  // Applying the diff reproduces the target.
+  const before = 'x'.repeat(10) + 'MIDDLE' + 'y'.repeat(10);
+  const after = 'x'.repeat(10) + 'CENTER' + 'y'.repeat(10);
+  const d = Helpers.textDiff(before, after);
+  assert.equal(before.slice(0, d.index) + d.insert + before.slice(d.index + d.remove), after);
+});
+
+test('textDiff never splits a surrogate pair', () => {
+  // U+1F600 and U+1F601 share their high surrogate; the naive prefix would
+  // stop between the halves and push a lone surrogate into the shared text.
+  const d = Helpers.textDiff('a\u{1F600}b', 'a\u{1F601}b');
+  assert.deepEqual(d, { index: 1, remove: 2, insert: '\u{1F601}' });
+  const e = Helpers.textDiff('\u{1F600}', '\u{1F601}\u{1F600}');
+  assert.equal('\u{1F600}'.slice(0, e.index) + e.insert + '\u{1F600}'.slice(e.index + e.remove), '\u{1F601}\u{1F600}');
+  assert.equal(e.insert.length % 2, 0);
+});
+
+test('share links round-trip room and key through the fragment', () => {
+  const room = 'AbCdEfGhIjKlMnOpQrStUv';
+  const key = 'k-'.repeat(20) + 'kkk';
+  const hash = Helpers.shareHash(room, key);
+  assert.deepEqual(Helpers.parseShareHash(hash), { room, key });
+  assert.deepEqual(Helpers.parseShareHash('#other=1&' + hash.slice(1)), { room, key });
+  assert.equal(Helpers.parseShareHash(''), null);
+  assert.equal(Helpers.parseShareHash('#share=short.short'), null);
+  assert.equal(Helpers.parseShareHash('#share=' + room), null);
+  assert.equal(Helpers.parseShareHash('#share=' + room + '.bad/chars+here+here+here+here'), null);
+});
+
+test('tagAuthor prefixes comments with a readable author tag', () => {
+  assert.equal(Helpers.tagAuthor('Vrata', 'looks wrong'), '@Vrata: looks wrong');
+  assert.equal(Helpers.tagAuthor('  Ada   Lovelace ', 'x'), '@Ada Lovelace: x');
+  assert.equal(Helpers.tagAuthor('', 'plain'), 'plain');
+  assert.equal(Helpers.tagAuthor(null, 'plain'), 'plain');
+});

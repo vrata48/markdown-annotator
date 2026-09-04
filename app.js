@@ -144,9 +144,19 @@ function discardPendingEdits() {
   hideEditPopup();
 }
 
+// A live shared session (collab.js) owns the open document: opening or
+// closing something else means leaving it first, and the user must agree.
+async function leaveSharedSession(question) {
+  if (!Collab.active) return true;
+  if (!await askConfirmation(question, 'Leave')) return false;
+  Collab.leave();
+  return true;
+}
+
 async function openHandle(handle, opts) {
   const silent = opts && opts.silent;
   if (state.dirty && !await askConfirmation('You have unsaved changes. Open another file anyway?', 'Open file')) return;
+  if (!await leaveSharedSession('You are in a shared session. Leave it and open this file?')) return;
   cancelAutoSave();  // the user just chose to discard — a pending timer must not save
   discardPendingEdits();
   try {
@@ -206,6 +216,9 @@ async function tryRestoreLast() {
     if (!last) return;
   }
   if (!last.handle) return;
+  // A share link in the URL wins: the shared document is what this tab shows,
+  // and the restored handle only becomes its save target (host refresh).
+  if (Collab.active || Collab.joining) { Collab.attachHandle(last.handle); return; }
   try {
     if (await last.handle.queryPermission({ mode: 'read' }) === 'granted') {
       await openHandle(last.handle, { silent: true });
@@ -251,7 +264,7 @@ function startWatch() {
 }
 
 async function checkDiskChange() {
-  if (!state.fileOpen || document.hidden) return;
+  if (!state.fileOpen || document.hidden || Collab.active) return;  // sharing: the session is the truth, disk is an export
   if (!state.fileHandle) return;
   try {
     const file = await state.fileHandle.getFile();
@@ -311,7 +324,7 @@ refreshAutoReloadButton();
 function getAutoSave() { return getFlag('auto-save'); }
 // The one definition of "auto-save covers the open document" — the scheduler,
 // the timer, saveFile and the toolbar must all agree on it.
-function autoSaveActive() { return getAutoSave() && !!state.fileHandle; }
+function autoSaveActive() { return getAutoSave() && !!state.fileHandle && !Collab.active; }
 function refreshAutoSaveButton() {
   const on = getAutoSave();
   const btn = $('#btn-autosave');
@@ -446,6 +459,7 @@ async function pickFolder() {
 
 async function openSample() {
   if (state.dirty && !await askConfirmation('You have unsaved changes. Open the sample document anyway?', 'Open sample')) return;
+  if (!await leaveSharedSession('You are in a shared session. Leave it and open the sample?')) return;
   cancelAutoSave();
   discardPendingEdits();
   if (watchTimer) { clearInterval(watchTimer); watchTimer = null; }
@@ -752,7 +766,9 @@ async function saveFile(opts) {
   const auto = !!(opts && opts.auto);  // timer-fired: no gestures, no modal dialogs
   if (!state.fileOpen) return;
   if (savePending) { scheduleAutoSave(); return; }  // in flight — retry shortly if auto-save is on
-  if (state.sample && !state.fileHandle) {
+  // No file behind the document (the sample, or a shared session joined by
+  // link): the first save picks where it goes.
+  if (!state.fileHandle) {
     if (auto || typeof window.showSaveFilePicker !== 'function') return;
     try {
       const handle = await window.showSaveFilePicker({ suggestedName: state.fileName, types: FILE_TYPES });
@@ -840,6 +856,9 @@ function flashSaved() {
 async function closeFile() {
   if (!state.fileOpen) return;
   if (state.dirty && !await askConfirmation('You have unsaved changes. Close anyway?', 'Close file')) return;
+  if (!await leaveSharedSession(Collab.host
+    ? 'Close this document and leave the shared session? Others can keep working until it expires.'
+    : 'Leave the shared session?')) return;
   if (watchTimer) { clearInterval(watchTimer); watchTimer = null; }
   cancelAutoSave();
   state.rawMarkdown = '';
@@ -1205,11 +1224,16 @@ function updateToolbar() {
   // auto-save also covering the edit, dirty is transient (the debounce window),
   // so the button stays dark unless the unsaved state will actually persist.
   const dirtyLasting = state.dirty && (!autoSaveActive() || autoSaveBlocked || state.diskMoved);
-  $('#btn-refresh').disabled = noFile || state.sample || (getAutoReload() && !dirtyLasting);
-  $('#btn-autoreload').disabled = noFile || state.sample;
-  $('#btn-autosave').disabled = noFile || state.sample;
+  // Reload/watch/auto-save need a file behind the document, and step aside
+  // while a shared session owns it (disk is only an export target then).
+  const noDisk = noFile || !state.fileHandle || Collab.active;
+  $('#btn-refresh').disabled = noDisk || (getAutoReload() && !dirtyLasting);
+  $('#btn-autoreload').disabled = noDisk;
+  $('#btn-autosave').disabled = noDisk;
   refreshAutoSaveButton();  // its knob/title reflect the open file's type
   $('#btn-export').disabled = noFile;
+  $('#btn-share').disabled = noFile;
+  Collab.refreshUi();
   $('#btn-mode-toggle').disabled = noFile;
   $('#btn-raw-toggle').disabled = noFile;
 }
@@ -1218,6 +1242,7 @@ function markDirty() {
   state.dirty = true;
   updateToolbar();
   scheduleAutoSave();
+  Collab.pushLocal();  // in a shared session, the change goes out to everyone
 }
 
 // ── Source mapping ──────────────────────────────────────────
@@ -1234,7 +1259,9 @@ function pushUndo() {
 }
 function clearUndo() { undoStack.length = 0; }
 function undo() {
-  if (!state.fileOpen || !undoStack.length) return;
+  if (!state.fileOpen) return;
+  if (Collab.active) { Collab.undo(); return; }  // per-user undo over the shared text
+  if (!undoStack.length) return;
   state.rawMarkdown = undoStack.pop();
   markDirty();
   render();
@@ -1399,6 +1426,7 @@ function hideInsCaret() { insCaret.classList.remove('visible'); }
 
 function showCommentPopup(pending) {
   state.pending = pending;
+  Collab.anchorPending(pending);  // offsets survive remote changes while the box is open
   // Don't echo the selected text back as a title; only show the small generic
   // hint for point/block comments.
   selectedPreview.textContent = pending.preview || '';
@@ -1420,7 +1448,9 @@ function commitAnnotation() {
   const text = annInput.value.trim();
   if (!text || !state.pending) return;
   pushUndo();
-  state.rawMarkdown = Core.applyInserts(state.rawMarkdown, state.pending.inserts, text);
+  // Shared sessions sign comments with the author's name; local files don't.
+  const comment = Collab.active ? Helpers.tagAuthor(Collab.name, text) : text;
+  state.rawMarkdown = Core.applyInserts(state.rawMarkdown, state.pending.inserts, comment);
   markDirty();
   render();
   hideAnnotationPopup();
@@ -1443,6 +1473,7 @@ function showNotice(msg, kind) { setToast(msg, kind, 2600); }
 // ── Edit annotation popup ──────────────────────────────────
 function openEditPopup(group, badgeEl) {
   state.editingIdx = group;
+  Collab.anchorEdit(group);
   editInput.value = Core.getGroupComment(state.rawMarkdown, group);
 
   const rect = badgeEl.getBoundingClientRect();
@@ -1966,7 +1997,8 @@ document.addEventListener('mousedown', (e) => {
 });
 
 window.addEventListener('beforeunload', (e) => {
-  if (state.dirty) { e.preventDefault(); e.returnValue = ''; }
+  // A guest's unsaved copy of a shared session lives on in the session — no nag.
+  if (state.dirty && !(Collab.active && !state.fileHandle)) { e.preventDefault(); e.returnValue = ''; }
 });
 
 // ── Drag & drop a file anywhere on the page ────────────────
@@ -2022,6 +2054,7 @@ if ('launchQueue' in window) {
 }
 
 initTheme();
+Collab.init();  // before the session restore: a share link in the URL takes precedence
 updateToolbar();
 refreshWelcomeRecent();
 tryRestoreLast();

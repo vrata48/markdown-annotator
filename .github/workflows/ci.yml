@@ -16,8 +16,12 @@ jobs:
       - name: Run unit tests
         run: node --test "tests/*.test.js"
       - name: Install browser test dependencies
-        run: npm install --no-save --no-package-lock playwright@1.55.0 markdown-it@14.1.0 mermaid@11.16.0
+        run: npm install --no-save --no-package-lock playwright@1.55.0 markdown-it@14.1.0 mermaid@11.16.0 yjs@13.6.27
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Run Chromium end-to-end tests
         run: node tests/browser-e2e.cjs
+      - name: Run relay protocol tests
+        run: node --test relay/test/relay.test.cjs
+      - name: Run shared-session end-to-end tests
+        run: node tests/collab-e2e.cjs

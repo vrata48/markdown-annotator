@@ -134,6 +134,49 @@
     return groups;
   }
 
+  // ── Shared sessions (collab.js) ──────────────────────────────────────────
+
+  // The single contiguous edit turning `before` into `after`, or null when
+  // they are equal: {index, remove, insert} in UTF-16 code units, which is
+  // also how Y.Text counts. Every app mutation is one localized splice
+  // (an annotation inserted, a group removed or accepted), so the
+  // common-prefix/common-suffix span is exactly that splice. The span is
+  // widened so it never starts or ends between the halves of a surrogate
+  // pair: a lone surrogate would not survive the UTF-8 encoding of an update.
+  function textDiff(before, after) {
+    if (before === after) return null;
+    const max = Math.min(before.length, after.length);
+    let start = 0;
+    while (start < max && before.charCodeAt(start) === after.charCodeAt(start)) start++;
+    if (start > 0 && isHighSurrogate(before.charCodeAt(start - 1))) start--;
+    let endBefore = before.length, endAfter = after.length;
+    while (endBefore > start && endAfter > start &&
+      before.charCodeAt(endBefore - 1) === after.charCodeAt(endAfter - 1)) { endBefore--; endAfter--; }
+    if (endBefore < before.length && isLowSurrogate(before.charCodeAt(endBefore))) { endBefore++; endAfter++; }
+    return { index: start, remove: endBefore - start, insert: after.slice(start, endAfter) };
+  }
+  function isHighSurrogate(code) { return code >= 0xD800 && code <= 0xDBFF; }
+  function isLowSurrogate(code) { return code >= 0xDC00 && code <= 0xDFFF; }
+
+  // A share link carries the room id and the encryption key in the URL
+  // fragment (never sent to any server): "#share=<room>.<key>", both base64url.
+  const SHARE_PART = /^[A-Za-z0-9_-]{16,64}$/;
+  function shareHash(room, key) { return '#share=' + room + '.' + key; }
+  function parseShareHash(hash) {
+    const m = /(?:^|[#&])share=([^&.]+)\.([^&]+)/.exec(String(hash || ''));
+    if (!m || !SHARE_PART.test(m[1]) || !SHARE_PART.test(m[2])) return null;
+    return { room: m[1], key: m[2] };
+  }
+
+  // Comments made in a shared session carry their author as plain text so the
+  // file stays readable anywhere: "@Name: comment".
+  function tagAuthor(name, comment) {
+    const who = String(name || '').replace(/\s+/g, ' ').trim();
+    const text = String(comment || '');
+    if (!who) return text;
+    return '@' + who + ': ' + text;
+  }
+
   return {
     normalizeTypography,
     stripMarkdownInline,
@@ -141,5 +184,9 @@
     findInSource,
     annotationGroups,
     folderChildren,
+    textDiff,
+    shareHash,
+    parseShareHash,
+    tagAuthor,
   };
 });

@@ -1,0 +1,20 @@
+name = "md-annotator-relay"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# One Durable Object per shared session ("room"). SQLite-backed classes are
+# the ones available on the free plan.
+[durable_objects]
+bindings = [{ name = "ROOMS", class_name = "Room" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+[vars]
+# A room is deleted this long after its last message. Rooms are sessions, not
+# storage: whoever wants to keep the document saves it locally.
+ROOM_TTL_HOURS = "24"
+# Optional, comma-separated. When set, websocket upgrades from any other
+# Origin are refused. Leave empty to accept every origin.
+ALLOWED_ORIGINS = ""
