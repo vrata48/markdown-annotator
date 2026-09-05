@@ -237,6 +237,11 @@ async function pickFile() {
 }
 
 async function reloadFromDisk() {
+  // While a session is live it owns the document — pulling the disk copy in
+  // would diverge state.rawMarkdown from the shared text and push the disk
+  // version over everyone's session on the next local edit. The button is
+  // disabled, but the disk banner's Reload can still land here.
+  if (Collab.active) { showNotice('Reload is off during a shared session — the session is the document.', 'info'); return; }
   cancelAutoSave();  // a pending save must not race the reload it would undo
   try {
     if (!state.fileHandle) return;
@@ -1261,6 +1266,10 @@ function findInSource(selectedText, beforeCtx, afterCtx) {
 const undoStack = [];
 const UNDO_MAX = 50;
 function pushUndo() {
+  // In a shared session the Yjs UndoManager owns Ctrl+Z (per-user undo); a
+  // snapshot taken here would, popped after the session ends, silently revert
+  // every remote change received since. Teardown also clears the stack.
+  if (Collab.active) return;
   undoStack.push(state.rawMarkdown);
   if (undoStack.length > UNDO_MAX) undoStack.shift();
 }
