@@ -42,7 +42,8 @@ session is a temporary, encrypted meeting point.
 5. Stop sharing (host) deletes the room; guests keep an editable local copy
    and see a banner. A guest can leave at any time. The host closing the tab
    does not end the room, and a host refresh rejoins it with the file handle
-   reattached (per-tab session store plus a `share-host` sessionStorage flag).
+   reattached (per-tab session store plus a `share-host-rooms` localStorage
+   list, which also lets a host who closed the tab reopen the link as host).
 
 ## Implementation notes
 

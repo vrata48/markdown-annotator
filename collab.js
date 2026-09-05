@@ -31,10 +31,12 @@
   const KEEPALIVE_MS = 25000;
   const PRESENCE_MS = 20000;
   const SNAPSHOT_AFTER = 40;   // compact the relay log once this many updates pile up
+  const MAX_FRAME = 4 * 1024 * 1024;         // the relay's per-message cap (relay/src/index.js)
+  const MAX_SHARE_BYTES = 2.5 * 1024 * 1024; // body bytes whose encrypted+base64url update still fits MAX_FRAME
   const NAME_KEY = 'share-name';
   const UID_KEY = 'share-uid';   // localStorage: one id per browser profile, so two tabs are one person
-  const HOST_KEY = 'share-host';      // sessionStorage: the room this tab created
-  const JOINED_KEY = 'share-joined';  // sessionStorage: the room this tab last took part in
+  const HOST_KEY = 'share-host-rooms';  // localStorage: rooms this browser created — being the host survives a closed tab, so the room can still be stopped and the file reattached
+  const JOINED_KEY = 'share-joined';    // sessionStorage: the room this tab last took part in
 
   const $ = (sel) => document.querySelector(sel);
   const Helpers = () => window.AnnotatorAppHelpers;
@@ -80,11 +82,23 @@
       return sessionUid;
     }
   }
-  function hostRoom() {
-    try { return sessionStorage.getItem(HOST_KEY) || ''; } catch (_) { return ''; }
+  // Host-ness lives in localStorage per room (not per tab): the host closing
+  // the tab must not orphan the room — reopening the link makes them host
+  // again. Entries are dropped when the room ends, plus a small cap as a
+  // backstop against rooms that were simply abandoned.
+  function hostRooms() {
+    try { return JSON.parse(localStorage.getItem(HOST_KEY)) || []; } catch (_) { return []; }
   }
-  function setHostRoom(room) {
-    try { room ? sessionStorage.setItem(HOST_KEY, room) : sessionStorage.removeItem(HOST_KEY); } catch (_) {}
+  function isHostRoom(room) { return hostRooms().includes(room); }
+  function addHostRoom(room) {
+    try {
+      const rooms = hostRooms().filter(r => r !== room);
+      rooms.push(room);
+      localStorage.setItem(HOST_KEY, JSON.stringify(rooms.slice(-20)));
+    } catch (_) {}
+  }
+  function removeHostRoom(room) {
+    try { localStorage.setItem(HOST_KEY, JSON.stringify(hostRooms().filter(r => r !== room))); } catch (_) {}
   }
   function joinedRoom() {
     try { return sessionStorage.getItem(JOINED_KEY) || ''; } catch (_) { return ''; }
@@ -142,6 +156,7 @@
       Y, doc, text, meta: doc.getMap('meta'), room, key: b64url.encode(keyBytes), cryptoKey, host,
       name: getName(),
       ws: null, status: 'connecting', retry: 0, ended: false,
+      create: false,      // ask the relay to create the room; stays set until the first successful 'hi'
       seq: 0,             // highest relay seq we hold (replayed, live, or acked)
       queue: [],          // frames to send once the socket is open
       sendChain: Promise.resolve(),  // encryption is async; keep frames in order
@@ -162,6 +177,12 @@
   // Start sharing the open document: new room, new key, our text as update #1.
   async function share() {
     if (s || !state.fileOpen) return;
+    // The whole document travels as one encrypted frame — refuse up front what
+    // the relay would refuse anyway (its cap is MAX_FRAME per message).
+    if (utf8.enc.encode(Core.removeReviewBrief(state.rawMarkdown)).length > MAX_SHARE_BYTES) {
+      showAppAlert('This document is too large to share live (the limit is about 2.5 MB).', 'Sharing unavailable');
+      return;
+    }
     const name = await askName('share');
     if (name == null) return;
     let Y;
@@ -173,16 +194,22 @@
     s = createSession(Y, room, keyBytes, await importKey(keyBytes), true);
     s.name = name;
     s.adopted = true;
+    s.create = true;
     s.doc.transact(() => {
       s.text.insert(0, Core.removeReviewBrief(state.rawMarkdown));
       s.meta.set('name', state.fileName || 'document.md');
     }, LOCAL);
     s.undo.clear();
-    setHostRoom(room);
+    addHostRoom(room);
     setJoinedRoom(room);
     history.replaceState(null, '', Helpers().shareHash(room, s.key));
+    // The session is the document now; the disk-conflict banner offers a
+    // reload that is disabled while sharing, so take it down. diskMoved stays:
+    // auto-save must not silently overwrite the moved disk copy — the first
+    // deliberate Ctrl+S resolves it.
+    hideDiskBanner();
     enterSession();
-    connect(true);
+    connect();
     const link = shareLink(room, s.key);
     try { await navigator.clipboard.writeText(link); showNotice('Sharing on — link copied', 'ok'); }
     catch (_) { showNotice('Sharing on — copy the link from the Share panel', 'info'); }
@@ -210,12 +237,27 @@
       try { Y = await loadYjs(); }
       catch (_) { await showAppAlert('The collaboration library could not be loaded. Check your connection and reload the link.', 'Cannot join'); return; }
       if (s) return;
-      s = createSession(Y, parsed.room, keyBytes, await importKey(keyBytes), hostRoom() === parsed.room);
+      s = createSession(Y, parsed.room, keyBytes, await importKey(keyBytes), isHostRoom(parsed.room));
       s.name = name;
-      connect(false);
+      connect();
     } finally {
-      if (!s) { Collab.joining = false; setConnecting(false); }
+      if (!s) {
+        Collab.joining = false;
+        setConnecting(false);
+        // The join fell through (bad link, cancelled name, no Yjs) — a file
+        // handle parked by the session restore must still open normally.
+        restoreOrphanFile();
+      }
     }
+  }
+
+  // A tab whose per-tab session restore was diverted to a join that never
+  // adopted a document falls back to plain reopening of its file.
+  function restoreOrphanFile() {
+    if (!pendingAttach || state.fileOpen) { pendingAttach = null; return; }
+    const handle = pendingAttach;
+    pendingAttach = null;
+    openHandle(handle, { silent: true });
   }
 
   // While a link is being opened the welcome screen would flash "no file";
@@ -271,16 +313,26 @@
     for (const t of Object.values(session.timers)) { clearTimeout(t); clearInterval(t); }
     if (session.ws) { try { session.ws.onclose = null; session.ws.close(); } catch (_) {} }
     try { session.undo.destroy(); session.doc.destroy(); } catch (_) {}
-    if (hostRoom() === session.room) setHostRoom('');
     Collab.active = false;
     Collab.joining = false;
     setConnecting(false);
     document.body.classList.remove('sharing');
-    clearHash();
+    // Only strip THIS session's hash: switching rooms via hashchange tears the
+    // old session down while the new room's hash is already in the URL.
+    const parsed = Helpers().parseShareHash(location.hash);
+    if (parsed && parsed.room === session.room) {
+      history.replaceState(null, '', location.pathname + location.search);
+    }
     closeMenu();
+    // The app-level undo stack holds pre-session and mid-session snapshots;
+    // popping one now would silently revert everyone's changes since. Start clean.
+    clearUndo();
     if (state.fileOpen && !state.sample) {
       state.displayPath = state.fileHandle ? state.fileName : state.fileName + ' — copy of the shared session';
     }
+    // adoptDocument stopped the disk watcher; with a file behind the document
+    // again on our own, external edits must be noticed again.
+    if (state.fileOpen && state.fileHandle) startWatch();
     updateToolbar();
     refreshUi();
   }
@@ -299,20 +351,27 @@
     if (!s) return;
     if (!await askConfirmation('Stop sharing? Everyone else loses the live session; their copies stay open so they can save them.', 'Stop sharing')) return;
     if (!s) return;
-    if (s.ws && s.ws.readyState === WebSocket.OPEN) {
+    const sent = !!(s.ws && s.ws.readyState === WebSocket.OPEN);
+    if (sent) {
       s.stoppedByUs = true;
       s.ws.send(JSON.stringify({ t: 'end' }));
       // The relay answers with {t:'end'} and closes; don't wait for it.
     }
+    removeHostRoom(s.room);
     teardown();
-    showNotice('Sharing stopped', 'ok');
+    // Disconnected: the end frame never left, so others keep the session and
+    // the room only dies by TTL — say so instead of pretending it stopped.
+    if (sent) showNotice('Sharing stopped', 'ok');
+    else showNotice('Sharing stopped here — the relay is unreachable, so others keep the session until it expires.', 'info');
   }
 
   // ── Relay connection ───────────────────────────────────────
-  function connect(create) {
+  function connect() {
     if (!s || s.ended) return;
     const session = s;
-    const url = relayUrl() + '/room/' + session.room + '?since=' + session.seq + (create ? '&create=1' : '');
+    // create stays set until the relay confirms the room exists ('hi'): if the
+    // very first connect after Share fails, the retry must still create it.
+    const url = relayUrl() + '/room/' + session.room + '?since=' + session.seq + (session.create ? '&create=1' : '');
     let ws;
     try { ws = new WebSocket(url); }
     catch (_) { scheduleReconnect(); return; }
@@ -347,7 +406,7 @@
     setStatus('reconnecting');
     const delay = Math.min(15000, 1000 * Math.pow(2, s.retry++));
     clearTimeout(s.timers.reconnect);
-    s.timers.reconnect = setTimeout(() => connect(false), delay);
+    s.timers.reconnect = setTimeout(connect, delay);
   }
 
   function setStatus(status) {
@@ -366,7 +425,16 @@
     session.sendChain = session.sendChain.then(async () => {
       if (s !== session) return;
       const d = await encrypt(session.cryptoKey, update);
-      if (s === session) sendFrame({ t: 'u', d });
+      if (s !== session) return;
+      if (d.length > MAX_FRAME) {
+        // The relay would refuse it anyway; better one honest notice than a
+        // change that silently exists only here. (App mutations are small —
+        // this can only really happen to the initial document, which share()
+        // already size-checks.)
+        showNotice('This change is too large to send to the shared session — others will not see it.');
+        return;
+      }
+      sendFrame({ t: 'u', d });
     }).catch(() => {});
   }
 
@@ -377,6 +445,7 @@
     if (s !== session) return;
     switch (m.t) {
       case 'hi':
+        session.create = false;  // the room exists now; reconnects must not recreate it
         session.cid = m.c;
         session.replaying = true;
         session.peers.clear();
@@ -430,7 +499,7 @@
         break;
       }
       case 'end':
-        roomEnded();
+        roomEnded(m.r);
         break;
       case 'gone':
         roomGone();
@@ -448,7 +517,8 @@
     session.sendChain = session.sendChain.then(async () => {
       if (s !== session) return;
       const d = await encrypt(session.cryptoKey, session.Y.encodeStateAsUpdate(session.doc));
-      if (s === session) sendFrame({ t: 's', d, n });
+      // Too big for one frame: skip compaction, the log just stays longer.
+      if (s === session && d.length <= MAX_FRAME) sendFrame({ t: 's', d, n });
     }).catch(() => {});
   }
 
@@ -462,28 +532,41 @@
     }).catch(() => {});
   }
 
-  function roomEnded() {
+  function roomEnded(reason) {
     if (!s) return;
     const wasAdopted = s.adopted;
+    const orphan = wasAdopted ? null : pendingAttach;
+    removeHostRoom(s.room);
     teardown();
-    if (wasAdopted) showBanner('The host stopped sharing. Your copy stays open — save it to keep your annotations.');
+    if (wasAdopted) {
+      showBanner(reason === 'expired'
+        ? 'This shared session has expired. Your copy stays open — save it to keep your annotations.'
+        : 'The host stopped sharing. Your copy stays open — save it to keep your annotations.');
+    } else if (orphan && !state.fileOpen) {
+      openHandle(orphan, { silent: true });
+    }
   }
 
   function roomGone() {
     if (!s) return;
     const wasAdopted = s.adopted;
+    const orphan = wasAdopted ? null : pendingAttach;
+    removeHostRoom(s.room);
     teardown();
     if (wasAdopted) showBanner('This shared session has expired. Your copy stays open — save it to keep your annotations.');
     else showAppAlert('This shared session has ended, or the link is not valid.', 'Cannot join');
+    if (orphan && !state.fileOpen) openHandle(orphan, { silent: true });  // the tab's own file still opens (host refresh into a dead room)
   }
 
   function badKey() {
     if (!s) return;
     const wasAdopted = s.adopted;
+    const orphan = wasAdopted ? null : pendingAttach;
     teardown();
     showAppAlert(wasAdopted
       ? 'A message in the shared session could not be decrypted. Your copy stays open — save it to keep it.'
       : 'This link\'s key does not match the shared document. Ask the host for a fresh link.', 'Shared session');
+    if (orphan && !state.fileOpen) openHandle(orphan, { silent: true });
   }
 
   // ── Document ↔ shared text ─────────────────────────────────
@@ -585,6 +668,12 @@
 
   // Host refresh: the tab's restored file handle becomes the save target again.
   async function attachHandle(handle) {
+    if (!s && !Collab.joining) {
+      // The join already failed by the time the session restore got here —
+      // fall back to opening the tab's file normally.
+      if (!state.fileOpen) openHandle(handle, { silent: true });
+      return;
+    }
     if (!s || !s.adopted) { pendingAttach = handle; return; }
     if (!s.host) return;  // a guest tab that used to hold another file must not save over it
     try {
@@ -709,7 +798,10 @@
     btn.title = on ? statusText() + ' — open the share panel' : 'Share this document for live annotation';
     if (!on) return;
     $('#share-status').textContent = statusText();
-    $('#share-link').value = shareLink(s.room, s.key);
+    // Presence churn calls refreshUi often — don't wipe a selection the user
+    // is making in the link box to copy it by hand.
+    const linkEl = $('#share-link');
+    if (document.activeElement !== linkEl) linkEl.value = shareLink(s.room, s.key);
     const list = $('#share-peers');
     list.innerHTML = '';
     for (const p of people()) {
@@ -722,6 +814,13 @@
     $('#btn-share-leave').textContent = s.host ? 'Leave (keep it running)' : 'Leave session';
   }
 
+  function releaseSelection() {
+    selecting = false;
+    const waiters = idleWaiters;
+    idleWaiters = [];
+    waiters.forEach(resolve => resolve());
+  }
+
   function init() {
     renderedView.addEventListener('mousedown', (e) => {
       if (e.button === 0 && e.target.closest('#content')) selecting = true;
@@ -729,13 +828,11 @@
     document.addEventListener('mouseup', () => {
       if (!selecting) return;
       // app.js opens the comment box 10ms after mouseup; let it anchor first.
-      setTimeout(() => {
-        selecting = false;
-        const waiters = idleWaiters;
-        idleWaiters = [];
-        waiters.forEach(resolve => resolve());
-      }, 60);
+      setTimeout(releaseSelection, 60);
     });
+    // A drag whose mouseup never reaches the page (Alt-Tab, devtools) must not
+    // hold remote updates hostage — recvChain is serialized behind the latch.
+    window.addEventListener('blur', () => { if (selecting) releaseSelection(); });
     $('#btn-share').addEventListener('click', (e) => {
       e.stopPropagation();
       if (!s) { share(); return; }

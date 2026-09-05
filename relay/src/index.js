@@ -11,8 +11,11 @@
  *   client → room
  *     {t:'u', d}          append an update; broadcast to others as {t:'u', d, n}
  *     {t:'s', d, n}       snapshot replacing every update with seq <= n
+ *                         (n <= the standing snapshot is acked as a no-op:
+ *                         several clients compacting at once is not an error)
  *     {t:'p', d}          presence; broadcast to others as {t:'p', c, d}, never stored
- *     {t:'end'}           delete the room; everybody receives {t:'end'} and is closed
+ *     {t:'end'}           delete the room; everybody receives {t:'end', r} and is closed
+ *                         (r: 'ended' when a client ended it, 'expired' on TTL)
  *     'ping'              keepalive, answered with 'pong' without waking the object
  *   room → client
  *     {t:'hi', c, peers, n}   your client id, the other client ids, the current seq
@@ -129,8 +132,8 @@ export class Room {
     await this.ctx.storage.setAlarm(meta.last + this.ttlMs());
   }
 
-  async endRoom() {
-    this.broadcast({ t: 'end' });
+  async endRoom(reason) {
+    this.broadcast({ t: 'end', r: reason || 'ended' });
     for (const ws of this.sockets()) {
       try { ws.close(1000, 'room ended'); } catch (_) {}
     }
@@ -141,7 +144,7 @@ export class Room {
   async alarm() {
     const meta = await this.ctx.storage.get('meta');
     if (!meta) return;
-    if (Date.now() >= meta.last + this.ttlMs()) await this.endRoom();
+    if (Date.now() >= meta.last + this.ttlMs()) await this.endRoom('expired');
     else await this.ctx.storage.setAlarm(meta.last + this.ttlMs());
   }
 
@@ -180,8 +183,14 @@ export class Room {
 
     if (m.t === 's') {
       const n = m.n | 0;
-      if (typeof m.d !== 'string' || !m.d || n <= meta.snapN || n > meta.seq) {
+      if (typeof m.d !== 'string' || !m.d || n > meta.seq) {
         this.refuse(ws, 'snapshot out of range');
+        return;
+      }
+      // Every client past SNAPSHOT_AFTER offers a snapshot; only the first one
+      // wins. The rest raced, they didn't err — ack and drop.
+      if (n <= meta.snapN) {
+        ws.send(JSON.stringify({ t: 'ack', n: meta.snapN }));
         return;
       }
       // A snapshot stands in for every update up to n: drop those and account

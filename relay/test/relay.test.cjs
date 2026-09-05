@@ -111,6 +111,10 @@ test('relay: rooms, replay, snapshots, presence and ending', { timeout: 240000 }
     assert.equal((await a.next(is('err'))).m, 'snapshot out of range');
     a.send({ t: 's', d: 'SNAP', n: 2 });
     assert.equal((await a.next(is('ack'))).n, 2);
+    // A second client racing to compact the same range is acked, not refused.
+    a.send({ t: 's', d: 'SNAP-LATE', n: 2 });
+    const late = await a.next(m => m.t === 'ack' || m.t === 'err');
+    assert.deepEqual([late.t, late.n], ['ack', 2]);
     a.send({ t: 'u', d: 'U3' });
     assert.equal((await a.next(is('ack'))).n, 3);
 
@@ -153,8 +157,8 @@ test('relay: rooms, replay, snapshots, presence and ending', { timeout: 240000 }
     await f.next(is('sync'));
     await a.next(is('join'));
     a.send({ t: 'end' });
-    await a.next(is('end'));
-    await f.next(is('end'));
+    assert.equal((await a.next(is('end'))).r, 'ended');
+    assert.equal((await f.next(is('end'))).r, 'ended');
     assert.equal(await a.closed, 1000);
     assert.equal(await f.closed, 1000);
 
@@ -174,7 +178,7 @@ test('relay: an idle room expires after its TTL', { timeout: 240000 }, async (t)
   await a.next(is('sync'));
   a.send({ t: 'u', d: 'U1' });
   await a.next(is('ack'));
-  await a.next(is('end'), 15000);
+  assert.equal((await a.next(is('end'), 15000)).r, 'expired');
   await a.closed;
 
   const b = connect(relay.url, room);
