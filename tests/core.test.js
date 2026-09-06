@@ -459,3 +459,12 @@ test('analyzeTarget: a selection carrying one quote of a pair sheds it instead o
   assert.equal(r.kind, 'inline');
   assert.equal(Core.applyInserts(src, r.inserts, 'x'), 'Some intro, {== "fix version 12.26.10" ==}{>> x <<}: clone the repo.');
 });
+
+test('analyzeTarget: a "* " list marker does not pair with emphasis when balancing a selection', withMd, () => {
+  const src = '* now Jira *čeština; (paren)!*\n  - next';
+  const sel = 'now Jira *čeština;';  // ends inside the emphasis
+  const start = src.indexOf(sel), end = start + sel.length;
+  const r = Core.analyzeTarget(src, { type: 'range', start, end }, realMd);
+  assert.equal(r.kind, 'inline');
+  assert.equal(Core.applyInserts(src, r.inserts, 'x'), '* {== now Jira *čeština; (paren)!* ==}{>> x <<}\n  - next');
+});

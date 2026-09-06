@@ -85,3 +85,44 @@ test('tagAuthor prefixes comments with a readable author tag', () => {
   assert.equal(Helpers.tagAuthor('', 'plain'), 'plain');
   assert.equal(Helpers.tagAuthor(null, 'plain'), 'plain');
 });
+
+test('findInSource matches a phrase that contains inline markup in the source', () => {
+  const src = [
+    '- **Release každý měsíc.** Dvě z nich do roka — **duben a říjen** — smějí vézt disruptivní featuru',
+    '  napřímo; ostatní měsíce musí být nedisruptivní, jinak featura jede za toggle (PB-WF-FEA-008).',
+    '  Zda je featura disruptivní, se rozhoduje ve status callu a zapisuje do **planning sheetu**.',
+    '- GA (general availability) je jednou měsíčně; datum je v Jira Fix Version (`releaseDate`) a v sheetu.',
+  ].join('\n');
+  const slice = (m) => src.slice(m.start, m.end);
+  // Bold inside the phrase: the match ends after the period, not after the closing **.
+  const sentence = 'Zda je featura disruptivní, se rozhoduje ve status callu a zapisuje do planning sheetu.';
+  assert.equal(slice(Helpers.findInSource(src, sentence, 'toggle (PB-WF-FEA-008). ', '\nGA (general')),
+    'Zda je featura disruptivní, se rozhoduje ve status callu a zapisuje do **planning sheetu**.');
+  // Both bullets end in "sheetu." — the whole phrase pins the right one.
+  assert.equal(slice(Helpers.findInSource(src, 'zapisuje do planning sheetu.', '', '')), 'zapisuje do **planning sheetu**.');
+  // A code span inside the phrase.
+  assert.equal(slice(Helpers.findInSource(src, 'Fix Version (releaseDate) a v sheetu', '', '')), 'Fix Version (`releaseDate`) a v sheetu');
+  // Em dashes rendered as typography still match.
+  assert.equal(slice(Helpers.findInSource(src, 'do roka - duben a říjen - smějí', '', '')), 'do roka — **duben a říjen** — smějí');
+});
+
+test('stripInlineMarkup keeps identifiers and maps offsets back to the source', () => {
+  const src = 'see [the docs](http://x.y) on x86_64, _emph_ and \\*literal\\*\n- item **bold**';
+  const { text, map } = Helpers.stripInlineMarkup(src);
+  assert.equal(text, 'see the docs on x86_64, emph and *literal*\nitem bold');
+  assert.equal(src[map[text.indexOf('docs')]], 'd');
+  assert.equal(src.slice(map[text.indexOf('bold')], map[text.indexOf('bold') + 3] + 1), 'bold');
+  const link = Helpers.findInSource(src, 'see the docs on', '', '');
+  assert.equal(src.slice(link.start, link.end), 'see [the docs](http://x.y) on');
+  // Starts inside the emphasis: the core's expandToBalanced widens it to the opening marker.
+  const under = Helpers.findInSource(src, 'emph and', '', '');
+  assert.equal(src.slice(under.start, under.end), 'emph_ and');
+});
+
+test('findInSource maps typographic ellipses and dashes back to the whole source run', () => {
+  const src = 'x=y it dots... a+b -- done';
+  const dots = Helpers.findInSource(src, 'it dots\u2026', '', '');
+  assert.equal(src.slice(dots.start, dots.end), 'it dots...');
+  const dash = Helpers.findInSource(src, 'a+b \u2014 done', '', '');
+  assert.equal(src.slice(dash.start, dash.end), 'a+b -- done');
+});

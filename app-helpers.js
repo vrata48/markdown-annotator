@@ -38,6 +38,68 @@
     return { norm: out.join(''), map };
   }
 
+  // The source as the reader sees it: inline markers, link syntax, escapes
+  // and block prefixes removed, with map[i] = source index of output char i.
+  // A selection such as "do planning sheetu." must match "do **planning
+  // sheetu**." — the rendered text has no markers, the source does.
+  function stripInlineMarkup(str) {
+    const out = [];
+    const map = [];
+    const isWordChar = (c) => !!c && /[\p{L}\p{N}]/u.test(c);
+    let i = 0;
+    let lineStart = true;
+    while (i < str.length) {
+      const c = str[i];
+      let skip = 0;
+      if (lineStart) {
+        const m = str.slice(i, i + 24).match(/^[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+(?:\[[ xX]\][ \t]+)?|>[ \t]?|#{1,6}[ \t]+)/);
+        if (m) skip = m[0].length;
+      }
+      if (!skip) {
+        if (c === '\\' && i + 1 < str.length && /[\\`*_{}\[\]()#+\-.!~>|"']/.test(str[i + 1])) {
+          // An escaped character is literal text: keep it, drop the backslash.
+          out.push(str[i + 1]);
+          map.push(i + 1);
+          lineStart = false;
+          i += 2;
+          continue;
+        }
+        if (c === '*' || c === '`' || c === '~') {
+          let j = i;
+          while (j < str.length && str[j] === c) j++;
+          if (c !== '~' || j - i >= 2) skip = j - i;
+        } else if (c === '_') {
+          let j = i;
+          while (j < str.length && str[j] === '_') j++;
+          // Intraword underscores (x86_64, foo_bar) are text, not emphasis.
+          if (!(isWordChar(str[i - 1]) && isWordChar(str[j]))) skip = j - i;
+        } else if (c === '!' && str[i + 1] === '[') skip = 2;
+        else if (c === '[') skip = 1;
+        else if (c === ']') {
+          const m = str.slice(i, i + 400).match(/^\]\([^)\n]*\)|^\]\[[^\]\n]*\]/);
+          skip = m ? m[0].length : 1;
+        }
+      }
+      if (skip) {
+        lineStart = false;
+        i += skip;
+        continue;
+      }
+      out.push(c);
+      map.push(i);
+      lineStart = c === '\n';
+      i++;
+    }
+    return { text: out.join(''), map };
+  }
+
+  // Markup stripped, then typography normalized, with one map back to source.
+  function matchView(source) {
+    const stripped = stripInlineMarkup(source);
+    const normalized = normalizeTypography(stripped.text);
+    return { norm: normalized.norm, map: normalized.map.map(i => stripped.map[i]) };
+  }
+
   function stripMarkdownInline(value) {
     return value
       .replace(/\*\*\*(.*?)\*\*\*/g, '$1')
@@ -81,14 +143,20 @@
       }
     }
     if (!candidates.length) {
-      const selNorm = normalizeTypography(normalizedSel).norm.trim();
-      const normalized = normalizeTypography(source);
+      // Neither a literal nor a wholly wrapped occurrence: compare against the
+      // reader's view of the source (markers removed, typography normalized).
+      const selNorm = normalizeTypography(normalizedSel).norm.trim();  // rendered text carries no markers
+      const view = matchView(source);
       if (selNorm) {
         let at = -1;
-        while ((at = normalized.norm.indexOf(selNorm, at + 1)) !== -1) {
-          const endOut = at + selNorm.length;
-          const end = endOut < normalized.map.length ? normalized.map[endOut] : source.length;
-          candidates.push({ start: normalized.map[at], end, score: -1 });
+        while ((at = view.norm.indexOf(selNorm, at + 1)) !== -1) {
+          // End right after the last matched character, so a marker that
+          // follows it (the closing ** of a bold run) stays outside — but a
+          // run the normalization collapsed ("..." → ".") is taken whole.
+          let end = view.map[at + selNorm.length - 1] + 1;
+          const last = source[end - 1];
+          if (last === '.' || last === '-') while (source[end] === last) end++;
+          candidates.push({ start: view.map[at], end, score: -1 });
         }
       }
     }
@@ -182,6 +250,7 @@
     stripMarkdownInline,
     lcsLength,
     findInSource,
+    stripInlineMarkup,
     annotationGroups,
     folderChildren,
     textDiff,

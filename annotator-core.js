@@ -701,7 +701,9 @@
 
   // Inline emphasis/code/strike spans in a block (approximate; common cases).
   function emphasisSpans(src, bs, be) {
-    const text = src.slice(bs, be);
+    // Blank line-leading list markers ("* item") so they cannot pair with a
+    // real emphasis opener; offsets stay put.
+    const text = src.slice(bs, be).replace(/^([ \t]*)([-*+])([ \t])/gm, (m, a, b, c) => a + ' ' + c);
     const spans = [];
     const pats = [/\*\*\*[\s\S]+?\*\*\*/g, /\*\*[\s\S]+?\*\*/g, /(?<!\*)\*(?!\*)[^*\n]+?\*/g, /__[\s\S]+?__/g, /(?<!_)_(?!_)[^_\n]+?_/g, /`[^`\n]+?`/g, /~~[\s\S]+?~~/g];
     for (const re of pats) { let m; while ((m = re.exec(text)) !== null) spans.push([bs + m.index, bs + m.index + m[0].length]); }
