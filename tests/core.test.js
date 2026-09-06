@@ -400,3 +400,62 @@ test('trimToContent edges: escaped pipes are content, not table structure', () =
   assert.equal(result.kind, 'inline');
   assert.equal(src.slice(result.inserts[0].start, result.inserts[0].end), 'a \\| b');
 });
+
+// The real renderer for behaviour that depends on markdown-it's parsing
+// (smart quotes, list indentation). Installed with the browser test deps
+// (see ci.yml); skipped when it is missing so `node --test` works bare.
+let realMd = null;
+try {
+  realMd = require('markdown-it')({ html: false, linkify: true, typographer: true });
+  Core.configureMd(realMd);
+} catch (_) { /* not installed */ }
+const withMd = { skip: !realMd && 'markdown-it is not installed' };
+
+// ── Indented code vs. four-space nested lists ──
+test('protectedCodeRanges: four-space nested list items are not code', () => {
+  const nested = '- a\n    - intro, {== fix ==}{>> real <<}: clone.\n\n1. b\n    - {>> also real <<}\n\n- c\n\n    continuation {>> real too <<}';
+  assert.equal(Core.scanAnnotations(nested).length, 3);
+  assert.equal(Core.preprocessCriticMarkup(nested).count, 3);
+  // Real indented code: top level after a blank line, or 4+ columns past a list item's content.
+  const code = 'Para.\n\n    {>> literal <<}\n\n- item\n\n      {>> literal in list code <<}\n\n{>> real <<}';
+  assert.equal(Core.scanAnnotations(code).length, 1);
+  // Indented code never interrupts a paragraph.
+  const lazy = 'Para line\n    {>> real, continuation <<}';
+  assert.equal(Core.scanAnnotations(lazy).length, 1);
+  // The old rule still holds for a document that starts with code.
+  assert.equal(Core.scanAnnotations('    {>> literal <<}\n\n{>> real <<}').length, 1);
+  // A thematic break is not a list item: code after "* * *" is still code.
+  assert.equal(Core.scanAnnotations('* * *\n\n    {>> literal <<}\n\n{>> real <<}').length, 1);
+});
+
+test('analyzeTarget: a selection starting after a backslash escape keeps the escape', withMd, () => {
+  const src = 'See \\#tag for details.';
+  const start = src.indexOf('#tag'), end = start + 4;
+  const r = Core.analyzeTarget(src, { type: 'range', start, end }, realMd);
+  assert.equal(r.kind, 'inline');
+  assert.equal(Core.applyInserts(src, r.inserts, 'x'), 'See {== \\#tag ==}{>> x <<} for details.');
+});
+
+test('analyzeTarget: a plain phrase in a four-space nested list is one highlight', withMd, () => {
+  const src = '- a\n    - intro, fix version 12.26.10: clone the repo.';
+  const start = src.indexOf('fix version'), end = start + 'fix version 12.26.10'.length;
+  const r = Core.analyzeTarget(src, { type: 'range', start, end }, realMd);
+  assert.equal(r.kind, 'inline');
+  assert.equal(Core.applyInserts(src, r.inserts, 'x'), '- a\n    - intro, {== fix version 12.26.10 ==}{>> x <<}: clone the repo.');
+});
+
+// ── Smart quotes at a selection edge ──
+test('analyzeTarget: a selection carrying one quote of a pair sheds it instead of splitting into words', withMd, () => {
+  const src = 'Some intro, "fix version 12.26.10": clone the repo.';
+  for (const sel of ['fix version 12.26.10"', '"fix version 12.26.10']) {
+    const start = src.indexOf(sel), end = start + sel.length;
+    const r = Core.analyzeTarget(src, { type: 'range', start, end }, realMd);
+    assert.equal(r.kind, 'inline', sel);
+    assert.equal(Core.applyInserts(src, r.inserts, 'x'), 'Some intro, "{== fix version 12.26.10 ==}{>> x <<}": clone the repo.', sel);
+  }
+  // Selecting both quotes keeps them inside the highlight.
+  const both = '"fix version 12.26.10"';
+  const r = Core.analyzeTarget(src, { type: 'range', start: src.indexOf(both), end: src.indexOf(both) + both.length }, realMd);
+  assert.equal(r.kind, 'inline');
+  assert.equal(Core.applyInserts(src, r.inserts, 'x'), 'Some intro, {== "fix version 12.26.10" ==}{>> x <<}: clone the repo.');
+});

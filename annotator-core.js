@@ -421,27 +421,46 @@
     while ((m = inline.exec(src)) !== null) {
       if (!inAnyRange(m.index, ranges)) ranges.push([m.index, m.index + m[0].length]);
     }
+    // Indented code (CommonMark): at least 4 columns beyond the enclosing
+    // list item's content, and only after a blank line — it never interrupts
+    // a paragraph. A four-space line under "- item" is a nested item or a
+    // continuation, which generated markdown uses constantly.
+    const lines = [];
     let pos = 0;
     while (pos < src.length) {
       const lineEnd = src.indexOf('\n', pos);
       const end = lineEnd < 0 ? src.length : lineEnd;
-      const line = src.slice(pos, end).replace(/\r$/, '');
-      if (!/^(?: {4}|\t)/.test(line) || inAnyRange(pos, ranges)) {
-        pos = lineEnd < 0 ? src.length : lineEnd + 1;
-        continue;
-      }
-      const start = pos;
-      let rangeEnd = end;
+      lines.push({ start: pos, end, text: src.slice(pos, end).replace(/\r$/, '') });
       pos = lineEnd < 0 ? src.length : lineEnd + 1;
-      while (pos < src.length) {
-        const nextEndAt = src.indexOf('\n', pos);
-        const nextEnd = nextEndAt < 0 ? src.length : nextEndAt;
-        const nextLine = src.slice(pos, nextEnd).replace(/\r$/, '');
-        if (nextLine && !/^(?: {4}|\t)/.test(nextLine)) break;
-        rangeEnd = nextEnd;
-        pos = nextEndAt < 0 ? src.length : nextEndAt + 1;
+    }
+    const blank = (l) => !/\S/.test(l.text);
+    const indentOf = (text) => text.match(/^[ \t]*/)[0].replace(/\t/g, '    ').length;
+    // Columns the nearest enclosing list item reserves for its content.
+    const listContentIndent = (i, indent) => {
+      for (let k = i - 1; k >= 0; k--) {
+        const l = lines[k];
+        if (blank(l)) continue;
+        const ind = indentOf(l.text);
+        if (ind >= indent) continue;
+        if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(l.text)) return 0;  // a thematic break, not "* item"
+        const item = l.text.match(/^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)/);
+        if (item) return ind + item[2].length + Math.min(4, item[3].replace(/\t/g, '    ').length);
+        if (ind === 0) return 0;  // a top-level paragraph/heading ends any list context
       }
-      ranges.push([start, rangeEnd]);
+      return 0;
+    };
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (blank(l) || inAnyRange(l.start, ranges)) continue;
+      const indent = indentOf(l.text);
+      if (indent < 4) continue;
+      if (i > 0 && !blank(lines[i - 1])) continue;  // paragraph continuation
+      if (indent < listContentIndent(i, indent) + 4) continue;
+      let j = i;
+      while (j + 1 < lines.length && (blank(lines[j + 1]) || indentOf(lines[j + 1].text) >= 4)) j++;
+      while (j > i && blank(lines[j])) j--;
+      ranges.push([l.start, lines[j].end]);
+      i = j;
     }
     return ranges.sort((a, b) => a[0] - b[0]);
   }
@@ -704,6 +723,32 @@
     return [s, e];
   }
 
+  // A selection that drags in one quote of a "…" pair splits the smart-quote
+  // pairing, so the plain highlight changes the rendering. Offer the range
+  // without the lone edge quote, then the range widened to its partner.
+  function quoteVariants(src, s, e) {
+    const out = [];
+    const text = src.slice(s, e);
+    for (const q of ['"', "'"]) {
+      if ((text.split(q).length - 1) % 2 === 0) continue;
+      let a = s, b = e;
+      if (src[a] === q) a++;
+      else if (src[b - 1] === q) b--;
+      if (a !== s || b !== e) {
+        const [ta, tb] = trimToContent(src, a, b);
+        if (tb > ta) out.push([ta, tb]);
+      }
+      const lineStart = src.lastIndexOf('\n', s - 1) + 1;
+      const lineEndAt = src.indexOf('\n', e);
+      const lineEnd = lineEndAt < 0 ? src.length : lineEndAt;
+      const after = src.indexOf(q, e);
+      if (after >= 0 && after < lineEnd) out.push([s, after + 1]);
+      const before = src.lastIndexOf(q, s - 1);
+      if (before >= lineStart) out.push([before, e]);
+    }
+    return out;
+  }
+
   function buildCandidates(src, target, fences) {
     const cands = [];
     if (target.type === 'point') {
@@ -744,6 +789,14 @@
       cands.push({ kind: 'inline', inserts: [{ type: 'pair', start: es, end: ee }] });
       if (es !== target.start || ee !== target.end) {
         cands.push({ kind: 'inline', inserts: [{ type: 'pair', start: target.start, end: target.end }] });
+      }
+      for (const [qs, qe] of quoteVariants(src, es, ee)) {
+        cands.push({ kind: 'inline', inserts: [{ type: 'pair', start: qs, end: qe }] });
+      }
+      // A selection starting right after a backslash escape ("\#tag") must
+      // carry the backslash, or the highlight boundary un-escapes the character.
+      if (es > 0 && src[es - 1] === '\\') {
+        cands.push({ kind: 'inline', inserts: [{ type: 'pair', start: es - 1, end: ee }] });
       }
       const trimmedOrMulti = blockSegs.length > 1 ||
         (blockSegs.length === 1 && (blockSegs[0].start !== target.start || blockSegs[0].end !== target.end));
