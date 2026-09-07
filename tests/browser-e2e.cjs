@@ -113,6 +113,25 @@ async function selectText(page, needle) {
     await page.locator('#message-cancel').click();
     assert(await page.evaluate(() => state.fileOpen && state.dirty), 'cancelling the close dialog discarded the document');
 
+    // A comment in a table's first row: the card must not be clipped by the
+    // table's scrolling wrapper (its text sits above the row).
+    await page.evaluate(() => {
+      state.rawMarkdown = '# Heading\n\n| Task | Owner |\n| --- | --- |\n| {== `DDE Tests` ==}{>> @Alex: It is important to communicate the farm type. <<} | Alex |\n| second | Bob |';
+      state.dirty = false;
+      clearUndo();
+      render();
+    });
+    await page.locator('.table-wrap .ann-wrap').first().hover();
+    const cardHit = await page.evaluate(() => {
+      const text = document.querySelector('.table-wrap .ann-badge-text');
+      const r = text.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { visible: !!hit && text.contains(hit) || hit === text, text: text.textContent };
+    });
+    assert(cardHit.visible && cardHit.text.startsWith('@Alex:'), 'comment card in a table is clipped: ' + JSON.stringify(cardHit));
+    await page.mouse.move(5, 5);
+    assert(await page.evaluate(() => getComputedStyle(document.querySelector('.table-wrap .ann-badge-card')).display === 'none'), 'table card stayed open after the pointer left');
+
     await page.evaluate(() => {
       state.rawMarkdown = '```mermaid\nflowchart LR\n  A --> B\n```';
       state.dirty = false;

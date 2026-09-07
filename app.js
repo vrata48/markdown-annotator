@@ -1050,10 +1050,54 @@ function render(opts) {
   setMode(state.mode);
 
   initTableWrap();
+  initTableCards();
   initTableResize();
   initCodeCopy();
   renderMermaid();
 }
+
+// ── Comment cards inside tables ────────────────────────────
+// The card floats above its row, but a table lives in a scrolling wrapper
+// (.table-wrap, overflow: auto) that clips anything outside it — in the
+// first row the whole comment text vanished, leaving just the Delete button.
+// While a card in a table is showing (hover, focus, or pinned by the
+// navigator), position it against the viewport instead, which no ancestor
+// can clip. Everything else about the card stays CSS.
+let pinnedCard = null;
+function pinTableCard(badge) {
+  const card = badge.querySelector('.ann-badge-card');
+  if (!card) return;
+  const r = badge.getBoundingClientRect();
+  const width = Math.min(320, window.innerWidth * 0.7);
+  card.style.position = 'fixed';
+  card.style.left = Math.max(8, Math.min(r.left - 8, window.innerWidth - width - 8)) + 'px';
+  card.style.bottom = (window.innerHeight - r.top + 6) + 'px';
+  pinnedCard = { badge, card };
+}
+function unpinTableCard(badge) {
+  if (!pinnedCard || pinnedCard.badge !== badge) return;
+  pinnedCard.card.style.position = '';
+  pinnedCard.card.style.left = '';
+  pinnedCard.card.style.bottom = '';
+  pinnedCard = null;
+}
+function initTableCards() {
+  pinnedCard = null;
+  contentEl.querySelectorAll('.table-wrap .ann-wrap').forEach((wrap) => {
+    const badge = wrap.querySelector('.ann-comment-badge');
+    if (!badge) return;
+    const pin = () => pinTableCard(badge);
+    const unpin = () => unpinTableCard(badge);
+    // The card is a descendant, so hovering the card itself keeps the pin.
+    wrap.addEventListener('mouseenter', pin);
+    wrap.addEventListener('mouseleave', unpin);
+    wrap.addEventListener('focusin', pin);
+    wrap.addEventListener('focusout', (e) => { if (!wrap.contains(e.relatedTarget)) unpin(); });
+  });
+}
+// A pinned card must follow its row when the page scrolls or resizes.
+renderedView.addEventListener('scroll', () => { if (pinnedCard) pinTableCard(pinnedCard.badge); }, { passive: true });
+window.addEventListener('resize', () => { if (pinnedCard) pinTableCard(pinnedCard.badge); });
 
 // Render every .mermaid block freshly produced by the markdown renderer.
 // innerHTML is rebuilt on each render(), so each call gets unprocessed nodes.

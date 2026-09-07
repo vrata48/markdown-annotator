@@ -47,5 +47,5 @@ Browser-only, single-page markdown annotator. No build step, no package.json —
 - Watch CSS specificity: `#rail button` (id+element) beats `#btn-x` (id) — prefix overrides with `#rail`. Same trap with `.content h2` vs `#welcome h2`.
 - Design specs for shipped features live in `docs/superpowers/specs/`.
 - `.lab/` and `in/` are local scratch — never commit them.
-- Local scripts load with `?v=N` cache-busters (`app-helpers.js?v=7`, `annotator-core.js?v=18`, `collab.js?v=6`, `app.js?v=65`). Bump core and app together when either interface changes — stale-cache mixes can throw "X is not a function" for users on plain reload. Bump the helper when its browser API changes, and collab together with app when their hooks change.
+- Local scripts load with `?v=N` cache-busters (`app-helpers.js?v=7`, `annotator-core.js?v=18`, `collab.js?v=6`, `app.js?v=66`). Bump core and app together when either interface changes — stale-cache mixes can throw "X is not a function" for users on plain reload. Bump the helper when its browser API changes, and collab together with app when their hooks change.
 - `node_modules/` is test-only (`npm install --no-save`, see ci.yml) and git-ignored; the app itself has no dependencies to install.
