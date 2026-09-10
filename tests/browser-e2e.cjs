@@ -158,6 +158,37 @@ async function selectText(page, needle) {
     await page.mouse.move(5, 5);
     assert(await page.evaluate(() => getComputedStyle(document.querySelector('.table-wrap .ann-badge-card')).display === 'none'), 'table card stayed open after the pointer left');
 
+    // A tall thread card on the first line of the view opens below its marker
+    // instead of being clipped above the view's top edge; once the line is
+    // scrolled to the middle, the card opens above again.
+    await page.evaluate(() => {
+      const thread = ['@Ann: first message', '@Bob: second message', '@Ann: third message', '@Bob: fourth message'].join('\n');
+      state.rawMarkdown = 'Filler paragraph.\n\n'.repeat(40) + '{== Top ==}{>> ' + thread + ' <<} line of a long document.\n\n' + 'Filler paragraph.\n\n'.repeat(80) + 'Bottom.';
+      state.dirty = false;
+      clearUndo();
+      render();
+      // Scroll the annotated line to the very top of the view: no room above.
+      document.querySelector('.ann-wrap[data-ann-group]').scrollIntoView({ block: 'start' });
+    });
+    const topWrap = page.locator('.ann-wrap[data-ann-group]').first();
+    await topWrap.hover();
+    const topCard = await page.evaluate(() => {
+      const wrap = document.querySelector('.ann-wrap[data-ann-group]');
+      const card = wrap.querySelector('.ann-badge-card').getBoundingClientRect();
+      const view = document.querySelector('#rendered-view').getBoundingClientRect();
+      const badge = wrap.querySelector('.ann-comment-badge').getBoundingClientRect();
+      return { below: wrap.classList.contains('ann-card-below'), inView: card.top >= view.top, underBadge: card.top >= badge.bottom };
+    });
+    assert(topCard.below && topCard.inView && topCard.underBadge, 'card at the top of the view was not flipped below: ' + JSON.stringify(topCard));
+    await page.mouse.move(5, 5);
+    await page.evaluate(() => { document.querySelector('.ann-wrap[data-ann-group]').scrollIntoView({ block: 'center' }); });
+    await topWrap.hover();
+    assert(await page.evaluate(() => {
+      const wrap = document.querySelector('.ann-wrap[data-ann-group]');
+      return !wrap.classList.contains('ann-card-below') && wrap.querySelector('.ann-badge-card').getBoundingClientRect().bottom <= wrap.querySelector('.ann-comment-badge').getBoundingClientRect().top;
+    }), 'card did not open above once there was room');
+    await page.mouse.move(5, 5);
+
     await page.evaluate(() => {
       state.rawMarkdown = '```mermaid\nflowchart LR\n  A --> B\n```';
       state.dirty = false;

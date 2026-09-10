@@ -923,6 +923,7 @@ function focusAnnotation(index) {
   contentEl.querySelectorAll('.ann-current').forEach(el => el.classList.remove('ann-current'));
   const matches = [...contentEl.querySelectorAll('.ann-wrap[data-ann-group="' + item.group + '"]')];
   matches.forEach(el => el.classList.add('ann-current'));
+  matches.forEach(placeCard);  // the pinned card opens now; scrolling re-places it
   const target = matches[0];
   if (target) {
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1072,19 +1073,26 @@ function render(opts) {
   setMode(state.mode);
 
   initTableWrap();
-  initTableCards();
+  initCardPlacement();
   initTableResize();
   initCodeCopy();
   renderMermaid();
 }
 
-// ── Comment cards inside tables ────────────────────────────
-// The card floats above its row, but a table lives in a scrolling wrapper
-// (.table-wrap, overflow: auto) that clips anything outside it — in the
-// first row the whole comment text vanished, leaving just the Delete button.
-// While a card in a table is showing (hover, focus, or pinned by the
-// navigator), position it against the viewport instead, which no ancestor
-// can clip. Everything else about the card stays CSS.
+// ── Comment card placement ─────────────────────────────────
+// The card floats above its line (CSS). Two cases need JS:
+//  - No room above: the scrolled view clips anything above its top edge, so
+//    a card on the first visible lines lost its top — threads made that
+//    common. Open it below the marker instead (.ann-card-below, see CSS).
+//  - Inside a table: .table-wrap (overflow: auto) clips the card outright —
+//    in the first row the whole text vanished, leaving just the buttons.
+//    Position it against the viewport instead, which no ancestor can clip.
+// Placement runs while a card is showing (hover, focus, or pinned by the
+// navigator) and follows scrolling and resizing.
+const CARD_GAP = 6;
+function cardFitsAbove(badgeRect, cardHeight) {
+  return badgeRect.top - CARD_GAP - cardHeight >= renderedView.getBoundingClientRect().top + 4;
+}
 let pinnedCard = null;
 function pinTableCard(badge) {
   const card = badge.querySelector('.ann-badge-card');
@@ -1093,7 +1101,13 @@ function pinTableCard(badge) {
   const width = Math.min(320, window.innerWidth * 0.7);
   card.style.position = 'fixed';
   card.style.left = Math.max(8, Math.min(r.left - 8, window.innerWidth - width - 8)) + 'px';
-  card.style.bottom = (window.innerHeight - r.top + 6) + 'px';
+  if (cardFitsAbove(r, card.offsetHeight)) {
+    card.style.bottom = (window.innerHeight - r.top + CARD_GAP) + 'px';
+    card.style.top = '';
+  } else {
+    card.style.top = (r.bottom + CARD_GAP) + 'px';
+    card.style.bottom = '';
+  }
   pinnedCard = { badge, card };
 }
 function unpinTableCard(badge) {
@@ -1101,25 +1115,39 @@ function unpinTableCard(badge) {
   pinnedCard.card.style.position = '';
   pinnedCard.card.style.left = '';
   pinnedCard.card.style.bottom = '';
+  pinnedCard.card.style.top = '';
   pinnedCard = null;
 }
-function initTableCards() {
+// A plain card: flip it below its marker when it would be clipped above. The
+// card must be showing (hover/focus/.ann-current) so its height is measurable.
+function placeCard(wrap) {
+  const badge = wrap.querySelector('.ann-comment-badge');
+  const card = badge && badge.querySelector('.ann-badge-card');
+  if (!card || wrap.closest('.table-wrap')) return;
+  wrap.classList.toggle('ann-card-below', !cardFitsAbove(badge.getBoundingClientRect(), card.offsetHeight));
+}
+function initCardPlacement() {
   pinnedCard = null;
-  contentEl.querySelectorAll('.table-wrap .ann-wrap').forEach((wrap) => {
+  contentEl.querySelectorAll('.ann-wrap').forEach((wrap) => {
     const badge = wrap.querySelector('.ann-comment-badge');
     if (!badge) return;
-    const pin = () => pinTableCard(badge);
-    const unpin = () => unpinTableCard(badge);
-    // The card is a descendant, so hovering the card itself keeps the pin.
-    wrap.addEventListener('mouseenter', pin);
-    wrap.addEventListener('mouseleave', unpin);
-    wrap.addEventListener('focusin', pin);
-    wrap.addEventListener('focusout', (e) => { if (!wrap.contains(e.relatedTarget)) unpin(); });
+    const inTable = !!wrap.closest('.table-wrap');
+    const show = inTable ? () => pinTableCard(badge) : () => placeCard(wrap);
+    const hide = inTable ? () => unpinTableCard(badge) : () => {};
+    // The card is a descendant, so hovering the card itself keeps it showing.
+    wrap.addEventListener('mouseenter', show);
+    wrap.addEventListener('mouseleave', hide);
+    wrap.addEventListener('focusin', show);
+    wrap.addEventListener('focusout', (e) => { if (!wrap.contains(e.relatedTarget)) hide(); });
   });
 }
-// A pinned card must follow its row when the page scrolls or resizes.
-renderedView.addEventListener('scroll', () => { if (pinnedCard) pinTableCard(pinnedCard.badge); }, { passive: true });
-window.addEventListener('resize', () => { if (pinnedCard) pinTableCard(pinnedCard.badge); });
+// Showing cards must follow their line when the page scrolls or resizes.
+function replaceCards() {
+  if (pinnedCard) pinTableCard(pinnedCard.badge);
+  contentEl.querySelectorAll('.ann-wrap.ann-current').forEach(placeCard);
+}
+renderedView.addEventListener('scroll', replaceCards, { passive: true });
+window.addEventListener('resize', replaceCards);
 
 // Render every .mermaid block freshly produced by the markdown renderer.
 // innerHTML is rebuilt on each render(), so each call gets unprocessed nodes.
