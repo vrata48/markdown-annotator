@@ -961,6 +961,18 @@ function updateAnnotationNavigator() {
     label.className = 'ann-list-label';
     label.textContent = item.label || 'Annotation';
     button.append(number, label);
+    // A thread lists its first message and how many replies follow; the
+    // tooltip already carries the whole conversation.
+    const thread = isComment ? Core.parseThread(item.comment) : [];
+    if (thread.length > 1) {
+      const first = thread[0];
+      label.textContent = (first.author ? first.author + ': ' : '') + first.text.replace(/\s+/g, ' ');
+      const replies = document.createElement('span');
+      replies.className = 'ann-list-replies';
+      replies.textContent = '+' + (thread.length - 1);
+      replies.title = (thread.length - 1) + (thread.length === 2 ? ' reply' : ' replies');
+      button.appendChild(replies);
+    }
     button.addEventListener('click', () => focusAnnotation(index));
     list.appendChild(button);
   });
@@ -1006,6 +1018,16 @@ function render(opts) {
       e.stopPropagation();
       if (state.mode !== 'annotate') return;
       deleteAnnotation(parseInt(btn.dataset.annGroup, 10));
+    });
+  });
+
+  // Reply in the card → the edit popup in reply mode, anchored to the annotation.
+  contentEl.querySelectorAll('.ann-reply').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (state.mode !== 'annotate') return;
+      const wrap = btn.closest('.ann-wrap');
+      openEditPopup(parseInt(btn.dataset.annGroup, 10), wrap || btn, { reply: true });
     });
   });
 
@@ -1342,6 +1364,15 @@ function updateAnnotation(group, newComment) {
   render();
 }
 
+// A reply is one insertion inside the comment (see Core.replyToGroup), so two
+// people replying to the same comment at once both keep theirs in a session.
+function replyToAnnotation(group, name, text) {
+  pushUndo();
+  state.rawMarkdown = Core.replyToGroup(state.rawMarkdown, group, name, text);
+  markDirty();
+  render();
+}
+
 // ── Selection handling ─────────────────────────────────────
 function getSelectionContext() {
   const sel = window.getSelection();
@@ -1531,10 +1562,23 @@ function setToast(msg, kind, ms) {
 function showNotice(msg, kind) { setToast(msg, kind, 2600); }
 
 // ── Edit annotation popup ──────────────────────────────────
-function openEditPopup(group, badgeEl) {
+// The popup also serves replies ({reply: true}): empty box, "Reply" button,
+// and outside a session a name field (prefilled from the remembered share
+// name) so the reply is still signed "@Name:" and reads as its own message.
+// Reusing the popup keeps the Yjs anchoring: a remote change while the box
+// is open rebases the group instead of replying to the wrong comment.
+let editReplying = false;
+function openEditPopup(group, badgeEl, opts) {
+  editReplying = !!(opts && opts.reply);
   state.editingIdx = group;
   Collab.anchorEdit(group);
-  editInput.value = Core.getGroupComment(state.rawMarkdown, group);
+  editInput.value = editReplying ? '' : Core.getGroupComment(state.rawMarkdown, group);
+  editInput.placeholder = editReplying ? 'Reply...' : 'Edit comment...';
+  editPopup.setAttribute('aria-label', editReplying ? 'Reply to comment' : 'Edit comment');
+  $('#btn-edit-save').textContent = editReplying ? 'Reply' : 'Update';
+  const nameRow = $('#edit-name-row');
+  nameRow.hidden = !editReplying || Collab.active;
+  if (!nameRow.hidden) $('#edit-name').value = Collab.name;
 
   const rect = badgeEl.getBoundingClientRect();
   let top = rect.bottom + 8;
@@ -1558,7 +1602,16 @@ function hideEditPopup() {
 function commitEdit() {
   const newComment = editInput.value.trim();
   if (!newComment || state.editingIdx === null) return;
-  updateAnnotation(state.editingIdx, newComment);
+  if (editReplying) {
+    let name = Collab.name;
+    if (!Collab.active) {
+      name = $('#edit-name').value.replace(/\s+/g, ' ').trim();
+      if (name && name !== Collab.name) Collab.setName(name);
+    }
+    replyToAnnotation(state.editingIdx, name, newComment);
+  } else {
+    updateAnnotation(state.editingIdx, newComment);
+  }
   hideEditPopup();
 }
 

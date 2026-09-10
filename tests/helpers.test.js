@@ -37,8 +37,8 @@ test('annotationGroups returns one compact entry per logical group', () => {
     { group: 1, kind: 'sub', text: 'old', text2: 'new' },
   ];
   assert.deepEqual(Helpers.annotationGroups(items), [
-    { group: 0, kind: 'highlight', label: 'One comment' },
-    { group: 1, kind: 'sub', label: 'new' },
+    { group: 0, kind: 'highlight', label: 'One comment', comment: 'One\ncomment' },
+    { group: 1, kind: 'sub', label: 'new', comment: '' },
   ]);
 });
 

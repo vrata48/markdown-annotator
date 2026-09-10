@@ -337,6 +337,55 @@
     return '';
   }
 
+  // A comment is a thread of messages, one per line signed "@Name: text" (the
+  // form shared sessions already write). Any other line continues the previous
+  // message; text before the first signed line is one unsigned message. A
+  // plain old comment is a thread of one.
+  const THREAD_LINE = /^@([^:\n]{1,60}):(?:[ \t]|$)/;
+  function parseThread(comment) {
+    const messages = [];
+    let current = null;
+    for (const line of String(comment == null ? '' : comment).split(/\r?\n/)) {
+      const m = THREAD_LINE.exec(line);
+      if (m) {
+        current = { author: m[1].trim(), text: line.slice(m[0].length) };
+        messages.push(current);
+      } else if (current) {
+        current.text += '\n' + line;
+      } else {
+        current = { author: '', text: line };
+        messages.push(current);
+      }
+    }
+    for (const msg of messages) msg.text = msg.text.trim();
+    return messages.filter(msg => msg.text || msg.author);
+  }
+
+  // Append a reply to a group's comment as ONE insertion (never a rewrite):
+  // shared sessions push a prefix/suffix diff, and Yjs keeps both of two
+  // concurrent insertions at the same spot, so two people replying to the
+  // same comment at once both keep their reply. A rewrite would duplicate
+  // the original text when two rewrites collided.
+  function replyToGroup(src, group, name, text) {
+    const who = String(name == null ? '' : name).replace(/\s+/g, ' ').trim();
+    const body = safeComment(String(text == null ? '' : text).trim());
+    if (!body) return src;
+    const line = (who ? '@' + who + ': ' : '') + body;
+    for (const it of scanAnnotations(src)) {
+      if (it.group !== group || (it.kind !== 'pair' && it.kind !== 'point')) continue;
+      // The comment body sits between the last "{>>" of the marker and its
+      // closing "<<}"; insert after its last non-whitespace character so the
+      // marker keeps whatever padding it had.
+      const close = it.mEnd - 3;
+      const open = src.lastIndexOf('{>>', close) + 3;
+      let at = close;
+      while (at > open && /\s/.test(src[at - 1])) at--;
+      const sep = at === open ? '' : '\n';
+      return src.slice(0, at) + sep + line + src.slice(at);
+    }
+    return src;
+  }
+
   function escapeHtml(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
@@ -504,6 +553,20 @@
   // as inline markdown (so **bold**/`code`/[links] inside a highlight keep their
   // formatting). data-ann-group links the blocks of a multi-block annotation so
   // edit/delete act on the whole group.
+  // The card body: a single unsigned comment stays the plain text span it
+  // always was; anything signed renders as a thread, one author + message per
+  // entry. Text is plain (escaped), not markdown.
+  function threadHtml(comment) {
+    const msgs = parseThread(comment);
+    if (!msgs.length || (msgs.length === 1 && !msgs[0].author)) {
+      return '<span class="ann-badge-text">' + escapeHtml(String(comment == null ? '' : comment).trim()) + '</span>';
+    }
+    return '<span class="ann-thread">' + msgs.map(m =>
+      '<span class="ann-msg">' +
+      (m.author ? '<span class="ann-msg-author">' + escapeHtml(m.author) + '</span>' : '') +
+      '<span class="ann-msg-text">' + escapeHtml(m.text) + '</span></span>').join('') + '</span>';
+  }
+
   function annHtml(md, e) {
     const c = escapeHtml(e.comment);
     const g = e.group;
@@ -513,10 +576,11 @@
     // card that CSS floats above the line on hover/focus (with the delete
     // control), so a long comment never sits inside the sentence.
     const delBtn = '<button class="ann-delete" data-ann-group="' + g + '" aria-label="Delete comment" title="Delete comment">Delete</button>';
+    const replyBtn = '<button class="ann-reply" data-ann-group="' + g + '" aria-label="Reply to comment" title="Reply">Reply</button>';
     const badge = '<span class="ann-comment-badge" ' + attrs + '>' +
       '<span class="ann-badge-num">' + (e.num || '') + '</span>' +
-      '<span class="ann-badge-card"><span class="ann-badge-text">' + c + '</span>' +
-      '<span class="ann-badge-actions">' + delBtn + '</span></span></span>';
+      '<span class="ann-badge-card">' + threadHtml(e.comment) +
+      '<span class="ann-badge-actions">' + replyBtn + delBtn + '</span></span></span>';
     if (e.kind === 'point') {
       return '<span class="ann-wrap ann-point" ' + editAttrs + '>' + badge + '</span>';
     }
@@ -577,9 +641,12 @@
     let h = html;
     // Innermost first — every regex is lazy, so nested spans must be gone
     // before their parent is matched or the parent stops at the wrong </span>.
-    h = h.replace(/<button class="ann-(?:delete|accept|reject)[^"]*"[^>]*>[\s\S]*?<\/button>/g, '');
+    h = h.replace(/<button class="ann-(?:delete|accept|reject|reply)[^"]*"[^>]*>[\s\S]*?<\/button>/g, '');
     h = h.replace(/<span class="ann-badge-actions">\s*<\/span>/g, '');
     h = h.replace(/<span class="ann-badge-text">([\s\S]*?)<\/span>/g, '$1');
+    h = h.replace(/<span class="ann-msg-(?:author|text)">([\s\S]*?)<\/span>/g, '$1 ');
+    h = h.replace(/<span class="ann-msg">([\s\S]*?)<\/span>/g, '$1');
+    h = h.replace(/<span class="ann-thread">([\s\S]*?)<\/span>/g, '$1');
     h = h.replace(/<span class="ann-badge-num">[\s\S]*?<\/span>/g, '');
     h = h.replace(/<span class="ann-badge-card">([\s\S]*?)<\/span>/g, '$1');
     h = h.replace(/<span class="ann-edit-controls">\s*<\/span>/g, '');
@@ -885,6 +952,8 @@
     docZone,
     updateGroup,
     getGroupComment,
+    parseThread,
+    replyToGroup,
     preprocessCriticMarkup,
     annHtml,
     configureMd,

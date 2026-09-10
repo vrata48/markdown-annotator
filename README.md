@@ -49,6 +49,7 @@ The app creates comments. Suggested edits are expected to come from an external 
 - Inline comments on words, formatted text, table cells, and multi-paragraph selections.
 - Point comments at a cursor position and whole-diagram comments on Mermaid blocks.
 - Inline numbered markers with a floating card that can be edited or deleted in place; no separate sidebar for feedback.
+- **Reply** on any comment starts a thread. Replies are extra `@Name: text` lines inside the same comment, so a conversation stays plain CriticMarkup and the navigator shows the first message with a `+N` reply count.
 - A compact annotation navigator with count, previous/next actions, and an overview list.
 - Keyboard-accessible comment and suggested-edit controls.
 - Annotate, read-only rendered View (`Ctrl+E`), and exact Raw source (`Ctrl+Shift+E`) modes.
@@ -76,6 +77,7 @@ The app creates comments. Suggested edits are expected to come from an external 
 
 - **Share** in the rail turns the open document into a live session. Give a display name once, send the copied link, and everyone with it reads and annotates the same document in real time. Changes appear on other screens within a second; concurrent comments both survive and are numbered in document order everywhere.
 - Comments made in a session are signed with the author's name (`{>>@Name: comment<<}`), so the file stays readable anywhere.
+- Replies in a session are signed the same way and added as single insertions, so two people answering the same comment at once both keep their reply.
 - The share panel shows the link, who is in the session, and the connection state. The same person in several tabs counts once. Ctrl+Z undoes only your own changes.
 - The document is encrypted in the browser with a key that travels only in the link's `#fragment`. The relay stores ciphertext and forgets the session a day after the last change, or as soon as the host stops sharing.
 - Disk stays the deliverable: the host's **Save** writes the session to the original file (with auto-save on, the file follows the session by itself), guests use **Save** to pick a copy wherever they like. Reload and auto-reload are paused while sharing, since they would push the disk copy over everyone's session.

@@ -102,6 +102,30 @@ async function selectText(page, needle) {
     assert(saved.includes('{== fox ==}{>> Check animal <<}'), 'physical selection/save did not persist CriticMarkup');
     assert(saved.startsWith('<!-- markdown-annotator:review:start -->') && saved.includes('Check animal'), 'saved file lacks the AI review brief');
 
+    // Reply outside a session: the reply box asks for a name (remembered for
+    // next time), the reply lands as its own "@Name:" line, and the card and
+    // navigator show the thread.
+    const foxWrap = page.locator('.ann-wrap[data-ann-group]').first();
+    await foxWrap.hover();
+    await foxWrap.locator('.ann-reply').click();
+    await page.locator('#edit-popup.visible').waitFor();
+    assert(await page.locator('#edit-name-row').isVisible() && (await page.locator('#btn-edit-save').textContent()) === 'Reply', 'reply mode did not show the name field');
+    await page.locator('#edit-name').fill('Vrata');
+    await page.locator('#edit-input').fill('It is a fox.');
+    await page.locator('#btn-edit-save').click();
+    assert(await page.evaluate(() => state.rawMarkdown.includes('{== fox ==}{>> Check animal\n@Vrata: It is a fox. <<}') && localStorage.getItem('share-name') === 'Vrata'),
+      'offline reply was not appended as a signed line');
+    const thread = await page.evaluate(() => ({
+      authors: [...document.querySelectorAll('.ann-thread .ann-msg-author')].map(el => el.textContent),
+      texts: [...document.querySelectorAll('.ann-thread .ann-msg-text')].map(el => el.textContent),
+      nav: [...document.querySelectorAll('#ann-nav-list button')].map(b => b.textContent),
+    }));
+    assert(thread.authors.join() === 'Vrata' && thread.texts.join('|') === 'Check animal|It is a fox.' && thread.nav.join() === '1Check animal+1',
+      'thread rendering is off: ' + JSON.stringify(thread));
+    await page.keyboard.press('Control+z');
+    assert(await page.evaluate(() => state.rawMarkdown.includes('{== fox ==}{>> Check animal <<}')), 'undo did not remove the reply');
+    await page.evaluate(() => saveFile());
+
     await page.evaluate(() => {
       state.rawMarkdown += '\n\nUnsaved line.';
       markDirty();
@@ -123,12 +147,14 @@ async function selectText(page, needle) {
     });
     await page.locator('.table-wrap .ann-wrap').first().hover();
     const cardHit = await page.evaluate(() => {
-      const text = document.querySelector('.table-wrap .ann-badge-text');
+      // A signed comment renders as a thread entry: author above the text.
+      const text = document.querySelector('.table-wrap .ann-msg-text');
       const r = text.getBoundingClientRect();
       const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return { visible: !!hit && text.contains(hit) || hit === text, text: text.textContent };
+      return { visible: !!hit && text.contains(hit) || hit === text, text: text.textContent,
+        author: document.querySelector('.table-wrap .ann-msg-author').textContent };
     });
-    assert(cardHit.visible && cardHit.text.startsWith('@Alex:'), 'comment card in a table is clipped: ' + JSON.stringify(cardHit));
+    assert(cardHit.visible && cardHit.author === 'Alex' && cardHit.text.startsWith('It is important'), 'comment card in a table is clipped: ' + JSON.stringify(cardHit));
     await page.mouse.move(5, 5);
     assert(await page.evaluate(() => getComputedStyle(document.querySelector('.table-wrap .ann-badge-card')).display === 'none'), 'table card stayed open after the pointer left');
 

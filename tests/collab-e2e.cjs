@@ -160,6 +160,38 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     assert(await host.evaluate(() => AnnotatorCore.scanAnnotations(state.rawMarkdown).length === 6
       && AnnotatorCore.stripAll(state.rawMarkdown).includes('The quick brown fox jumps over the lazy dog.')), 'document corrupted by a rebased comment');
 
+    // ── Replies thread onto a comment; concurrent replies both survive ──
+    const reply = async (page, needle, text) => {
+      const group = await page.evaluate(t => AnnotatorCore.scanAnnotations(state.rawMarkdown).find(it => it.comment && it.comment.includes(t)).group, needle);
+      const wrap = page.locator('.ann-wrap[data-ann-group="' + group + '"]').last();
+      await wrap.hover();
+      await wrap.locator('.ann-reply').click();
+      await page.locator('#edit-popup.visible').waitFor();
+      assert(await page.locator('#edit-name-row').isHidden(), 'reply box asked for a name inside a session');
+      await page.locator('#edit-input').fill(text);
+      await page.locator('#btn-edit-save').click();
+    };
+    await reply(guest, 'Slow', 'Not that slow');
+    await hasText(host, '{== lazy ==}{>> @Ada: Slow\n@Bob: Not that slow <<}');
+    const hostThread = await host.evaluate(() => {
+      const threads = [...document.querySelectorAll('.ann-thread')].filter(t => t.querySelectorAll('.ann-msg').length > 1);
+      return { count: threads.length, authors: threads.length ? [...threads[0].querySelectorAll('.ann-msg-author')].map(e => e.textContent).join() : '',
+        replies: [...document.querySelectorAll('#ann-nav-list .ann-list-replies')].map(e => e.textContent).join() };
+    });
+    assert(hostThread.count === 1 && hostThread.authors === 'Ada,Bob' && hostThread.replies === '+1', 'reply did not render as a thread on the host: ' + JSON.stringify(hostThread));
+    await Promise.all([reply(host, 'Check animal', 'Ada here'), reply(guest, 'Check animal', 'Bob here')]);
+    await hasText(host, '@Bob: Bob here');
+    await hasText(guest, '@Ada: Ada here');
+    const afterReplies = await Promise.all([host, guest].map(p => p.evaluate(() => state.rawMarkdown)));
+    assert(afterReplies[0] === afterReplies[1], 'host and guest diverged after concurrent replies');
+    const foxThread = await host.evaluate(() => {
+      const it = AnnotatorCore.scanAnnotations(state.rawMarkdown).find(i => i.comment && i.comment.includes('Check animal'));
+      return { msgs: AnnotatorCore.parseThread(it.comment).map(m => m.author), groups: AnnotatorCore.scanAnnotations(state.rawMarkdown).length,
+        once: AnnotatorCore.removeReviewBrief(state.rawMarkdown).split('Check animal').length === 2 };
+    });
+    assert(foxThread.msgs.length === 3 && foxThread.msgs[0] === 'Bob' && foxThread.once && foxThread.groups === 6,
+      'concurrent replies lost or duplicated text: ' + JSON.stringify(foxThread));
+
     // ── Saving: host writes the session to its file; guest saves a copy ──
     await host.evaluate(() => saveFile());
     const hostSaved = await host.evaluate(async () => (await state.fileHandle.getFile()).text());

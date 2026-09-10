@@ -18,8 +18,8 @@
         integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"
         integrity="sha384-wLhprpjsmjc/XYIcF+LpMxd8yS1gss6jhevOp6F6zhiIoFK6AmHtm4bGKtehTani" crossorigin="anonymous"></script>
-<script src="app-helpers.js?v=7"></script>
-<script src="annotator-core.js?v=18"></script>
+<script src="app-helpers.js?v=8"></script>
+<script src="annotator-core.js?v=19"></script>
 <!-- Mermaid ships as an ES module. Keep the loader external so the CSP can
      block inline scripts and event handlers in untrusted Markdown. -->
 <script type="module" src="mermaid-init.js?v=1"></script>
@@ -499,6 +499,7 @@ body.file-open #welcome { display: none; }
 }
 #ann-nav-list .ann-list-index.ann-list-edit { background: transparent; color: var(--pen); border: 1px solid var(--pen-underline); line-height: 14px; }
 #ann-nav-list .ann-list-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ann-nav-list .ann-list-replies { flex: none; margin-left: auto; font-size: 10px; font-weight: 600; color: var(--pen); }
 /* Collapsed rail: one icon button like the others, count as its badge; click = next. */
 #rail #ann-nav-cycle { display: none; }
 #rail .rail-count {
@@ -674,6 +675,13 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 .ann-badge-actions button:hover { background: var(--desk); color: var(--ink); }
 .ann-badge-actions .ann-delete { color: var(--danger); }
 .ann-badge-actions .ann-delete:hover { background: var(--del-wash); border-color: var(--warn-border); }
+/* A thread: one entry per signed message, author above text, hairline between entries */
+.ann-thread { display: flex; flex-direction: column; min-width: 0; align-self: stretch; }
+.ann-msg { display: flex; flex-direction: column; gap: 1px; padding: 5px 0; border-top: 1px solid var(--line); }
+.ann-msg:first-child { padding-top: 0; border-top: 0; }
+.ann-msg:last-child { padding-bottom: 0; }
+.ann-msg-author { font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: var(--pen); }
+.ann-msg-text { min-width: 0; overflow-wrap: anywhere; white-space: pre-line; }
 /* Keep the hover bridge: the gap between marker and card must not lose :hover */
 .ann-badge-card::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 16px; }
 
@@ -926,6 +934,11 @@ body.dragging::after {
   line-height: 1.5;
 }
 #edit-input:focus { border-color: var(--pen); box-shadow: 0 0 0 2px var(--focus-ring); }
+/* Reply mode outside a session: who signs the reply */
+#edit-name-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--ink-soft); }
+#edit-name-row[hidden] { display: none; }
+#edit-name { flex: 1; min-width: 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; font-family: inherit; font-size: 12px; color: var(--text); background: var(--paper); outline: none; }
+#edit-name:focus { border-color: var(--pen); box-shadow: 0 0 0 2px var(--focus-ring); }
 #edit-popup .btn-row { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
 #edit-popup .btn-row button { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px; font-weight: 500; cursor: pointer; }
 
@@ -1405,6 +1418,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
 
 <div id="edit-popup" role="dialog" aria-label="Edit comment">
   <textarea id="edit-input" placeholder="Edit comment..."></textarea>
+  <label id="edit-name-row" hidden><span>Your name</span><input id="edit-name" type="text" maxlength="60" autocomplete="off" placeholder="Name"></label>
   <div class="btn-row">
     <button id="btn-edit-cancel" style="background:var(--paper);color:var(--text);">Cancel</button>
     <button id="btn-edit-save" style="background:var(--accent);color:var(--on-pen);border-color:var(--accent);">Update</button>
@@ -1480,7 +1494,7 @@ body.view-mode #rendered-view .content { cursor: auto; }
   <button data-act="download">Download PNG</button>
 </div>
 
-<script src="collab.js?v=6"></script>
-<script src="app.js?v=66"></script>
+<script src="collab.js?v=7"></script>
+<script src="app.js?v=67"></script>
 </body>
 </html>

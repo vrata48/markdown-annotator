@@ -54,6 +54,7 @@
     joining: false,  // a share link is being opened (set synchronously on load)
     get host() { return !!(s && s.host); },
     get name() { return s ? s.name : getName(); },
+    setName,  // replies outside a session sign with the remembered name; the reply box can change it
     init, share, stopSharing, leave, pushLocal, undo, canUndo,
     anchorPending, rebasePending, anchorEdit, attachHandle, reattachFile, refreshUi,
     session: () => s,

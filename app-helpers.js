@@ -192,10 +192,12 @@
       const normalized = String(label).replace(/\s+/g, ' ').trim();
       if (byGroup.has(item.group)) {
         const existing = byGroup.get(item.group);
-        if (item.comment) existing.label = normalized;
+        if (item.comment) { existing.label = normalized; existing.comment = item.comment; }
         continue;
       }
-      const group = { group: item.group, kind: item.kind, label: normalized };
+      // `comment` keeps the raw text (line breaks intact) so the navigator can
+      // read a thread's messages; `label` is the one-line form for display.
+      const group = { group: item.group, kind: item.kind, label: normalized, comment: item.comment || '' };
       byGroup.set(item.group, group);
       groups.push(group);
     }

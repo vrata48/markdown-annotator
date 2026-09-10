@@ -468,3 +468,61 @@ test('analyzeTarget: a "* " list marker does not pair with emphasis when balanci
   assert.equal(r.kind, 'inline');
   assert.equal(Core.applyInserts(src, r.inserts, 'x'), '* {== now Jira *čeština; (paren)!* ==}{>> x <<}\n  - next');
 });
+
+// ── Comment threads: replies as "@Name: text" lines ──────────
+test('parseThread splits a comment into signed messages', () => {
+  assert.deepEqual(Core.parseThread('plain note'), [{ author: '', text: 'plain note' }]);
+  assert.deepEqual(Core.parseThread('@Ann: first\n@Bob: second\nstill second\n@Ann: third'), [
+    { author: 'Ann', text: 'first' },
+    { author: 'Bob', text: 'second\nstill second' },
+    { author: 'Ann', text: 'third' },
+  ]);
+  // Unsigned text before the first signed line is its own message; an email
+  // address or a colon in the text does not start a message.
+  assert.deepEqual(Core.parseThread('lead in\n@Ann Lee: see mail@x.org: yes'), [
+    { author: '', text: 'lead in' },
+    { author: 'Ann Lee', text: 'see mail@x.org: yes' },
+  ]);
+  assert.deepEqual(Core.parseThread(''), []);
+});
+
+test('replyToGroup appends one signed line as a single insertion', () => {
+  const src = 'a {== x ==}{>> @Ann: hi <<} b {>> point <<} c {-- gone --}';
+  const out = Core.replyToGroup(src, 0, 'Bob', 'yo');
+  assert.equal(out, 'a {== x ==}{>> @Ann: hi\n@Bob: yo <<} b {>> point <<} c {-- gone --}');
+  // Pure insertion: a common prefix and suffix cover everything but the reply.
+  const at = src.indexOf(' <<}');
+  assert.equal(out.slice(0, at), src.slice(0, at));
+  assert.equal(out.slice(out.length - (src.length - at)), src.slice(at));
+  // Points take replies; suggested edits carry no comment and are untouched.
+  assert.equal(Core.replyToGroup(src, 1, 'Bob', 'ok'), src.replace('{>> point <<}', '{>> point\n@Bob: ok <<}'));
+  assert.equal(Core.replyToGroup(src, 2, 'Bob', 'no'), src);
+  // Unsigned reply, blank reply, and a reply that tries to close the marker.
+  assert.equal(Core.replyToGroup('{>> a <<}', 0, '', 'b'), '{>> a\nb <<}');
+  assert.equal(Core.replyToGroup('{>> a <<}', 0, 'Bob', '   '), '{>> a <<}');
+  assert.equal(Core.replyToGroup('{>> a <<}', 0, 'Bob', 'x <<} y'), '{>> a\n@Bob: x << } y <<}');
+  assert.equal(Core.replyToGroup('{>><<}', 0, 'Bob', 'first'), '{>>@Bob: first<<}');
+  // A multi-block group replies on its trailing pair only.
+  const multi = '{== p ==} {== q ==}{>> @Ann: both <<}';
+  assert.equal(Core.replyToGroup(multi, 0, 'Bob', 'yes'), '{== p ==} {== q ==}{>> @Ann: both\n@Bob: yes <<}');
+});
+
+test('a thread renders as author + message entries and strips back to plain text', () => {
+  const md = { render: (s) => s, renderInline: (s) => s };
+  const src = 'a {== x ==}{>> @Ann: hi <b>\n@Bob: yo <<} b {>> plain <<}';
+  const html = Core.renderAnnotated(md, src);
+  assert.match(html, /<span class="ann-thread"><span class="ann-msg"><span class="ann-msg-author">Ann<\/span><span class="ann-msg-text">hi &lt;b&gt;<\/span><\/span><span class="ann-msg"><span class="ann-msg-author">Bob<\/span><span class="ann-msg-text">yo<\/span><\/span><\/span>/);
+  // Reply sits before Delete in the card actions, on threads and single comments alike.
+  assert.equal((html.match(/<button class="ann-reply" data-ann-group="\d+"[^>]*>Reply<\/button><button class="ann-delete"/g) || []).length, 2);
+  // An unsigned single comment keeps the plain text span.
+  assert.match(html, /<span class="ann-badge-card"><span class="ann-badge-text">plain<\/span>/);
+  assert.equal(Core.stripAnnotationHtml(html).replace(/\s+/g, ' ').trim(), 'a x b');
+});
+
+test('the review brief folds a thread onto one index line', () => {
+  const src = 'Intro\n\n{== x ==}{>> @Ann: hi\n@Bob: yo <<} rest\n';
+  const out = Core.syncReviewBrief(src);
+  const brief = out.slice(0, out.indexOf('markdown-annotator:review:end'));
+  assert.match(brief, /\*\*Comment\*\* on `x` — `@Ann: hi @Bob: yo`/);
+  assert.equal(brief.split('\n').filter(l => /^> \d+\. /.test(l)).length, 1);
+});
