@@ -28,6 +28,7 @@
 
   const LOCAL = 'local';    // Yjs transaction origins: our own splices ...
   const REMOTE = 'remote';  // ... and updates received from the relay
+  const DISK = 'disk';      // ... and the host's file changing on disk (sent, but not undoable)
   const KEEPALIVE_MS = 25000;
   const PRESENCE_MS = 20000;
   const SNAPSHOT_AFTER = 40;   // compact the relay log once this many updates pile up
@@ -55,7 +56,7 @@
     get host() { return !!(s && s.host); },
     get name() { return s ? s.name : getName(); },
     setName,  // replies outside a session sign with the remembered name; the reply box can change it
-    init, share, stopSharing, leave, pushLocal, undo, canUndo,
+    init, share, stopSharing, leave, pushLocal, pushDisk, undo, canUndo,
     anchorPending, rebasePending, anchorEdit, attachHandle, reattachFile, refreshUi,
     session: () => s,
   };
@@ -186,6 +187,10 @@
     }
     const name = await askName('share');
     if (name == null) return;
+    // The host's file is the source while sharing (its watcher reloads the
+    // session from disk), so the file must also carry the session: turn
+    // auto-save on now, while the dialog's click can still grant write access.
+    await enableAutoSaveForSharing();
     let Y;
     try { Y = await loadYjs(); }
     catch (_) { showAppAlert('The collaboration library could not be loaded. Check your connection and try again.', 'Sharing unavailable'); return; }
@@ -571,8 +576,11 @@
   }
 
   // ── Document ↔ shared text ─────────────────────────────────
-  // Called from markDirty(): push whatever app.js just changed.
-  function pushLocal() {
+  // Called from markDirty(): push whatever app.js just changed. The host's
+  // disk watcher pushes with the DISK origin: it still travels to everyone,
+  // but stays out of the host's undo history (undoing a file change would
+  // make auto-save write the session back over the edited file).
+  function pushLocal(origin) {
     if (!s || !s.adopted) return;
     const body = Core.removeReviewBrief(state.rawMarkdown);
     const d = Helpers().textDiff(s.text.toString(), body);
@@ -580,8 +588,9 @@
     s.doc.transact(() => {
       if (d.remove) s.text.delete(d.index, d.remove);
       if (d.insert) s.text.insert(d.index, d.insert);
-    }, LOCAL);
+    }, origin || LOCAL);
   }
+  function pushDisk() { pushLocal(DISK); }
 
   // The shared text changed under us (remote update, undo): mirror it.
   function applyFromDoc() {

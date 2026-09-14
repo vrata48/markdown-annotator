@@ -237,27 +237,37 @@ async function pickFile() {
 }
 
 async function reloadFromDisk() {
-  // While a session is live it owns the document — pulling the disk copy in
-  // would diverge state.rawMarkdown from the shared text and push the disk
-  // version over everyone's session on the next local edit. The button is
-  // disabled, but the disk banner's Reload can still land here.
-  if (Collab.active) { showNotice('Reload is off during a shared session — the session is the document.', 'info'); return; }
-  cancelAutoSave();  // a pending save must not race the reload it would undo
+  // A guest's file (a "save as" copy) is an export of the session, never its
+  // source — pulling it in would push that copy over everyone's session on
+  // the next local edit. The host's file IS the source (see adoptDiskCopy).
+  if (Collab.active && !Collab.host) { showNotice('Reload is off while in someone else\'s session — the session is the document.', 'info'); return; }
   try {
     if (!state.fileHandle) return;
-    const file = await state.fileHandle.getFile();
-    discardPendingEdits();
-    state.rawMarkdown = await file.text();
-    state.dirty = false;
-    state.diskMoved = false;
-    state.lastModified = file.lastModified;
-    clearUndo();
-    hideDiskBanner();
-    render();
-    showNotice('Reloaded from disk', 'ok');
+    await adoptDiskCopy(await state.fileHandle.getFile());
+    showNotice(Collab.active ? 'Reloaded from disk into the session' : 'Reloaded from disk', 'ok');
   } catch (e) {
     showAppAlert('Failed to reload file: ' + e.message, 'Could not reload file');
   }
+}
+
+// Make the disk copy the document. While the host shares, the session follows:
+// the file on disk is the truth, so comments it no longer contains disappear
+// for everyone and text edits appear for everyone (the session diff travels as
+// one non-undoable splice — undoing it would let auto-save write the session
+// back over the edited file).
+async function adoptDiskCopy(file) {
+  cancelAutoSave();  // a pending save must not race the reload it would undo
+  discardPendingEdits();
+  state.rawMarkdown = await file.text();
+  state.dirty = false;
+  state.diskMoved = false;
+  state.lastModified = file.lastModified;
+  clearUndo();
+  hideDiskBanner();
+  render();  // may refresh the generated brief, which leaves the document dirty
+  if (Collab.active) Collab.pushDisk();
+  if (state.dirty) scheduleAutoSave();
+  updateToolbar();
 }
 
 // ── File watching: catch external edits (e.g. an LLM rewriting the file) ──
@@ -269,12 +279,18 @@ function startWatch() {
 }
 
 async function checkDiskChange() {
-  if (!state.fileOpen || document.hidden || Collab.active) return;  // sharing: the session is the truth, disk is an export
+  if (!state.fileOpen || document.hidden) return;
+  if (Collab.active && !Collab.host) return;  // a guest's file is an export of the session, not its source
   if (!state.fileHandle) return;
   try {
     const file = await state.fileHandle.getFile();
     if (file.lastModified <= state.lastModified) return;
-    if (!state.dirty && getAutoReload()) {
+    if (Collab.active) {
+      // The host's file is the source of the session: whatever changed it
+      // (an editor, an LLM) wins — no conflict banner, no opt-in.
+      await adoptDiskCopy(file);
+      showNotice('File changed on disk — the session now shows it');
+    } else if (!state.dirty && getAutoReload()) {
       // Opted in and no local changes — pick up the new content silently.
       discardPendingEdits();
       state.rawMarkdown = await file.text();
@@ -313,9 +329,13 @@ function setFlag(key, on) {
 
 function getAutoReload() { return getFlag('auto-reload'); }
 function refreshAutoReloadButton() {
-  const on = getAutoReload();
+  // The host of a shared session always follows its file (the session is
+  // reloaded from disk), so the knob shows on and is not a choice there.
+  const hosting = Collab.active && Collab.host;
+  const on = getAutoReload() || hosting;
   const btn = $('#btn-autoreload');
-  btn.title = 'Auto-reload external changes: ' + (on ? 'on' : 'off');
+  btn.title = hosting ? 'Auto-reload is always on while you share: the session follows your file'
+    : 'Auto-reload external changes: ' + (on ? 'on' : 'off');
   btn.classList.toggle('on', on);
 }
 $('#btn-autoreload').addEventListener('click', () => {
@@ -329,9 +349,26 @@ refreshAutoReloadButton();
 function getAutoSave() { return getFlag('auto-save'); }
 // The one definition of "auto-save covers the open document" — the scheduler,
 // the timer, saveFile and the toolbar must all agree on it.
-// Sharing doesn't change it: with a file behind the document, auto-save keeps
-// the disk copy in step with the session (remote changes schedule it too).
+// With a file behind the document, auto-save keeps the disk copy in step with
+// a shared session too (remote changes schedule it) — and the host's file is
+// the session's source, so sharing turns it on (enableAutoSaveForSharing).
 function autoSaveActive() { return getAutoSave() && !!state.fileHandle; }
+// Starting a share (a user gesture: the name dialog's OK) turns auto-save on
+// for the host and takes the write permission it needs, so the file always
+// carries the session and a disk reload never drops annotations that were
+// only in the session. The host can still switch it off afterwards.
+async function enableAutoSaveForSharing() {
+  if (!state.fileHandle) return;
+  if (!getAutoSave()) {
+    setFlag('auto-save', true);
+    refreshAutoSaveButton();
+  }
+  try {
+    if (await state.fileHandle.requestPermission({ mode: 'readwrite' }) === 'granted') autoSaveBlocked = false;
+  } catch (_) {}
+  updateToolbar();
+  scheduleAutoSave();
+}
 function refreshAutoSaveButton() {
   const on = getAutoSave();
   const btn = $('#btn-autosave');
@@ -818,6 +855,9 @@ async function saveFile(opts) {
       // external write that landed in the gap instead of clobbering it.
       const onDisk = await handle.getFile();
       if (onDisk.lastModified > state.lastModified) {
+        // The host's file is the source of a shared session: take it in
+        // (adoptDiskCopy re-baselines) instead of asking.
+        if (Collab.active && Collab.host) { await adoptDiskCopy(onDisk); showNotice('File changed on disk — the session now shows it'); return; }
         state.lastModified = onDisk.lastModified;
         showDiskBanner(true);
         return;
@@ -1337,6 +1377,7 @@ function updateToolbar() {
   $('#btn-autoreload').disabled = noDisk || Collab.active;
   $('#btn-autosave').disabled = noDisk;
   refreshAutoSaveButton();  // its knob/title reflect the open file's type
+  refreshAutoReloadButton();  // shows "on" for the host of a session
   $('#btn-export').disabled = noFile;
   $('#btn-share').disabled = noFile;
   Collab.refreshUi();

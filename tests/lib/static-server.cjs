@@ -53,10 +53,26 @@ function createStaticServer() {
   });
 }
 
+// Prefer Playwright's own Chromium (what CI runs) when it is installed
+// locally; fall back to the system Edge on Windows. The installed Chrome/Edge
+// 153 builds kill the whole browser process when an OPFS file handle is read
+// back from IndexedDB (2026-09-14), which every recents write does.
 function browserExecutable() {
-  return process.env.E2E_BROWSER_PATH || (process.platform === 'win32'
-    ? 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
-    : undefined);
+  if (process.env.E2E_BROWSER_PATH) return process.env.E2E_BROWSER_PATH;
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const home = process.env.LOCALAPPDATA || process.env.HOME || '';
+  const root = path.join(home, process.platform === 'win32' ? 'ms-playwright' : '.cache/ms-playwright');
+  try {
+    const dirs = fs.readdirSync(root).filter(d => /^chromium-\d+$/.test(d)).sort((a, b) => Number(b.slice(9)) - Number(a.slice(9)));
+    for (const d of dirs) {
+      for (const rel of ['chrome-win64/chrome.exe', 'chrome-win/chrome.exe', 'chrome-linux/chrome', 'chrome-mac/Chromium.app/Contents/MacOS/Chromium']) {
+        const p = path.join(root, d, rel);
+        if (fs.existsSync(p)) return p;
+      }
+    }
+  } catch (_) { /* no Playwright browsers installed */ }
+  return process.platform === 'win32' ? 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' : undefined;
 }
 
 module.exports = { createStaticServer, browserExecutable };

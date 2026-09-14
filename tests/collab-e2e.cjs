@@ -39,6 +39,20 @@ const hasText = (page, needle) =>
   page.waitForFunction((t) => state.rawMarkdown.includes(t), needle, { timeout: 20000 });
 const lacksText = (page, needle) =>
   page.waitForFunction((t) => !state.rawMarkdown.includes(t), needle, { timeout: 20000 });
+// waitForFunction cannot await an async predicate (a Promise is truthy), so
+// disk checks poll from here. want = { has: [..], lacks: [..], clean: bool }.
+async function waitDisk(page, want, message) {
+  const deadline = Date.now() + 20000;
+  for (;;) {
+    const ok = await page.evaluate(async (w) => {
+      const text = await (await state.fileHandle.getFile()).text();
+      return (w.has || []).every(t => text.includes(t)) && (w.lacks || []).every(t => !text.includes(t)) && (!w.clean || !state.dirty);
+    }, want);
+    if (ok) return;
+    if (Date.now() > deadline) throw new Error(message);
+    await new Promise(r => setTimeout(r, 250));
+  }
+}
 
 const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog.\n\nA second paragraph to comment on.\n';
 
@@ -57,10 +71,14 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     }, { relayUrl: relay.url, name });
     const page = await ctx.newPage();
     page.on('pageerror', e => errors.push(name + ': ' + e.message));
+    // A vanished page is the browser process dying, not a test bug — say so.
+    page.on('crash', () => console.log('PAGE CRASHED: ' + name));
+    page.on('close', () => console.log('PAGE CLOSED: ' + name));
     return page;
   };
   const ready = (page) => page.waitForFunction(() => typeof markdownit === 'function' && typeof window.AnnotatorCore === 'object' && typeof window.Collab === 'object');
 
+  browser.on('disconnected', () => console.log('BROWSER DISCONNECTED'));
   const host = await newPage('Ada');
   const guest = await newPage('Bob');
   try {
@@ -117,21 +135,46 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     await comment(guest, 'fox', 'Check animal');
     await hasText(guest, '{== fox ==}{>> @Bob: Check animal <<}');
     await hasText(host, '@Bob: Check animal');
-    assert(await host.evaluate(() => state.dirty), 'host disk copy was not marked behind the session');
+    // Auto-save is on for the host since the share started: the file follows.
+    await waitDisk(host, { has: ['@Bob: Check animal'] }, "auto-save did not write the guest's comment to the host's file");
     await comment(host, 'lazy', 'Slow');
     await hasText(guest, '{== lazy ==}{>> @Ada: Slow <<}');
     assert(await guest.evaluate(() => document.querySelector('#content').textContent.includes('Annotation review brief') === false
       && state.rawMarkdown.startsWith('<!-- markdown-annotator:review:start -->')), 'guest brief is missing or rendered');
 
-    // ── Auto-save keeps the host's file in step with the session ──
-    const onDisk = (page) => page.evaluate(async () => (await (await state.fileHandle.getFile()).text()));
-    assert(!(await onDisk(host)).includes('@Ada: Slow'), 'file was written before auto-save was turned on');
-    await host.locator('#btn-autosave').click();
-    assert(await host.evaluate(() => !$('#btn-autosave').disabled && $('#btn-autosave').classList.contains('on')), 'auto-save toggle is unavailable while sharing');
-    await host.waitForFunction(async () => (await (await state.fileHandle.getFile()).text()).includes('@Ada: Slow') && !state.dirty, null, { timeout: 15000 });
+    // ── Sharing turned auto-save on for the host: the file follows the session ──
+    assert(await host.evaluate(() => !$('#btn-autosave').disabled && $('#btn-autosave').classList.contains('on')), 'starting a share did not turn auto-save on for the host');
+    await waitDisk(host, { has: ['@Ada: Slow'], clean: true }, "auto-save did not write the host's own comment");
     await comment(guest, 'over', 'Auto');
-    await host.waitForFunction(async () => (await (await state.fileHandle.getFile()).text()).includes('@Bob: Auto') && !state.dirty, null, { timeout: 15000 });
-    assert(await host.evaluate(() => $('#btn-refresh').disabled && $('#btn-autoreload').disabled), 'reload controls came back while sharing');
+    await hasText(host, '@Bob: Auto');
+    await waitDisk(host, { has: ['@Bob: Auto'], clean: true }, 'auto-save did not write a remote comment');
+    assert(await host.evaluate(() => $('#btn-refresh').disabled && $('#btn-autoreload').disabled && $('#btn-autoreload').classList.contains('on')), 'reload controls came back, or auto-reload is not shown on, while sharing');
+    assert(await guest.evaluate(() => !$('#btn-autoreload').classList.contains('on')), 'a guest shows auto-reload on');
+
+    // ── The host's file is the source: an edit on disk reaches everyone,
+    //    kept annotations stay, a removed annotation goes ──
+    await host.evaluate(async () => {
+      Collab.session().undo.clear();  // so Ctrl+Z below can only undo the disk change, if it were tracked
+      const text = await (await state.fileHandle.getFile()).text();
+      const edited = text
+        .replace('A second paragraph to comment on.', 'A second paragraph, rewritten on disk.')
+        .replace('{== over ==}{>> @Bob: Auto <<}', 'over');
+      if (edited === text) throw new Error('fixture text not found on disk');
+      const w = await state.fileHandle.createWritable();
+      await w.write(edited);
+      await w.close();
+    });
+    await hasText(guest, 'rewritten on disk');
+    await lacksText(guest, '@Bob: Auto');
+    await hasText(host, 'rewritten on disk');
+    const afterDisk = await Promise.all([host, guest].map(p => p.evaluate(() => AnnotatorCore.removeReviewBrief(state.rawMarkdown))));
+    assert(afterDisk[1].includes('@Bob: Check animal') && afterDisk[1].includes('@Ada: Slow') && afterDisk[0] === afterDisk[1],
+      'a disk reload dropped annotations the file still had, or host and guest diverged:\n' + JSON.stringify(afterDisk));
+    await host.waitForFunction(() => !state.dirty, null, { timeout: 15000 });
+    await waitDisk(host, { has: ['rewritten on disk', '@Ada: Slow'], lacks: ['@Bob: Auto'] }, 'auto-save wrote the old session back over the edited file');
+    const beforeUndo = await host.evaluate(() => state.rawMarkdown);
+    await host.keyboard.press('Control+z');
+    assert(await host.evaluate((t) => state.rawMarkdown === t, beforeUndo), 'Ctrl+Z on the host undid a change that came from disk');
 
     // ── Concurrent comments both survive ──
     await Promise.all([comment(host, 'quick', 'From Ada'), comment(guest, 'second', 'From Bob')]);
@@ -140,7 +183,7 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     const same = await Promise.all([host, guest].map(p => p.evaluate(() => state.rawMarkdown)));
     assert(same[0] === same[1], 'host and guest diverged after concurrent comments');
     const afterConcurrent = await host.evaluate(() => AnnotatorCore.scanAnnotations(state.rawMarkdown).map(it => it.kind + ':' + (it.comment || it.text)));
-    assert(afterConcurrent.length === 5, 'expected five annotations after concurrent comments, got ' + JSON.stringify(afterConcurrent));
+    assert(afterConcurrent.length === 4, 'expected four annotations after concurrent comments, got ' + JSON.stringify(afterConcurrent));
 
     // ── Undo is per user: Bob's Ctrl+Z removes Bob's last comment only ──
     await guest.keyboard.press('Control+z');
@@ -157,7 +200,7 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     await guest.locator('#annotation-input').fill('Still here');
     await guest.locator('#btn-ann-save').click();
     await hasText(host, '{== jumps ==}{>> @Bob: Still here <<}');
-    assert(await host.evaluate(() => AnnotatorCore.scanAnnotations(state.rawMarkdown).length === 6
+    assert(await host.evaluate(() => AnnotatorCore.scanAnnotations(state.rawMarkdown).length === 5
       && AnnotatorCore.stripAll(state.rawMarkdown).includes('The quick brown fox jumps over the lazy dog.')), 'document corrupted by a rebased comment');
 
     // ── Replies thread onto a comment; concurrent replies both survive ──
@@ -189,7 +232,7 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
       return { msgs: AnnotatorCore.parseThread(it.comment).map(m => m.author), groups: AnnotatorCore.scanAnnotations(state.rawMarkdown).length,
         once: AnnotatorCore.removeReviewBrief(state.rawMarkdown).split('Check animal').length === 2 };
     });
-    assert(foxThread.msgs.length === 3 && foxThread.msgs[0] === 'Bob' && foxThread.once && foxThread.groups === 6,
+    assert(foxThread.msgs.length === 3 && foxThread.msgs[0] === 'Bob' && foxThread.once && foxThread.groups === 5,
       'concurrent replies lost or duplicated text: ' + JSON.stringify(foxThread));
 
     // ── Saving: host writes the session to its file; guest saves a copy ──
