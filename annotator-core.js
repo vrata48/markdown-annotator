@@ -850,11 +850,17 @@
       cands.push({ kind: 'block', inserts: blocks });
     } else {
       // Contiguous whole-range first (nicest) — boundaries trimmed of block
-      // and table chrome (a sloppy boundary match can include a cell's ` | `),
-      // then snapped out of any emphasis span — then per-block, then per-word
-      // as a last resort.
+      // and table chrome (a sloppy boundary match can include a cell's ` | `).
+      // The exact trimmed range goes first: a selection inside *emphasis*
+      // stays inside it (`*a {==b==} c*` renders fine). Only when that breaks
+      // the structure (the selection crosses a marker, or sits in a code
+      // span) is the range snapped out to the span edges — then per-block,
+      // then per-word as a last resort.
       const [ts, te] = trimToContent(src, target.start, target.end);
       const [es, ee] = te > ts ? expandToBalanced(src, ts, te) : [target.start, target.end];
+      if (es !== ts || ee !== te) {
+        cands.push({ kind: 'inline', inserts: [{ type: 'pair', start: ts, end: te }] });
+      }
       cands.push({ kind: 'inline', inserts: [{ type: 'pair', start: es, end: ee }] });
       if (es !== target.start || ee !== target.end) {
         cands.push({ kind: 'inline', inserts: [{ type: 'pair', start: target.start, end: target.end }] });

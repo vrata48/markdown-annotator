@@ -469,6 +469,21 @@ test('analyzeTarget: a "* " list marker does not pair with emphasis when balanci
   assert.equal(Core.applyInserts(src, r.inserts, 'x'), '* {== now Jira *čeština; (paren)!* ==}{>> x <<}\n  - next');
 });
 
+test('analyzeTarget: a selection inside emphasis stays inside it instead of taking the whole span', withMd, () => {
+  const check = (src, sel, expected) => {
+    const start = src.indexOf(sel), end = start + sel.length;
+    const r = Core.analyzeTarget(src, { type: 'range', start, end }, realMd);
+    assert.equal(r.kind, 'inline');
+    assert.equal(Core.applyInserts(src, r.inserts, 'x'), expected);
+  };
+  check('Toto je *dlouhy kurzivni text* a dal.', 'kurzivni', 'Toto je *dlouhy {== kurzivni ==}{>> x <<} text* a dal.');
+  check('Toto je _dlouhy kurzivni text_ a dal.', 'dlouhy', 'Toto je _{== dlouhy ==}{>> x <<} kurzivni text_ a dal.');
+  check('Toto je **dlouhy tucny text** a dal.', 'text', 'Toto je **dlouhy tucny {== text ==}{>> x <<}** a dal.');
+  // Crossing a marker or sitting in a code span still snaps out to the span.
+  check('Toto je *dlouhy kurzivni text* a dal.', 'je *dlouhy', 'Toto {== je *dlouhy kurzivni text* ==}{>> x <<} a dal.');
+  check('Toto je `kod uvnitr` a dal.', 'uvnitr', 'Toto je {== `kod uvnitr` ==}{>> x <<} a dal.');
+});
+
 // ── Comment threads: replies as "@Name: text" lines ──────────
 test('parseThread splits a comment into signed messages', () => {
   assert.deepEqual(Core.parseThread('plain note'), [{ author: '', text: 'plain note' }]);
