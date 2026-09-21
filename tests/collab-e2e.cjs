@@ -261,6 +261,34 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     await comment(guest, 'paragraph', 'After refresh');
     await hasText(host, '@Bob: After refresh');
 
+    // ── Host refresh without the file grant: a banner offers Reconnect ──
+    // OPFS handles keep their grant, so wrap the real one to look like a
+    // Chrome handle after a refresh: permission 'prompt' until asked.
+    await host.evaluate(async () => {
+      const real = state.fileHandle;
+      let perm = 'prompt';
+      const fake = {
+        kind: real.kind, name: real.name,
+        queryPermission: async () => perm,
+        requestPermission: async () => (perm = 'granted'),
+        getFile: () => real.getFile(),
+        createWritable: (o) => real.createWritable(o),
+        isSameEntry: (h) => real.isSameEntry(h),
+      };
+      state.fileHandle = null;
+      updateToolbar();
+      await Collab.attachHandle(fake);
+    });
+    assert(await host.evaluate(() => !state.fileHandle && getComputedStyle($('#share-banner')).display !== 'none'
+      && !$('#btn-share-reattach').hidden && $('#btn-autosave').disabled && !$('#btn-save').disabled),
+      'refresh without the grant did not show the Reconnect banner with disk controls off');
+    await host.locator('#btn-share-reattach').click();
+    await host.waitForFunction(() => state.fileHandle && state.fileName === 'collab-host.md' && getComputedStyle($('#share-banner')).display === 'none', null, { timeout: 10000 });
+    assert(await host.evaluate(() => !$('#btn-autosave').disabled && $('#btn-save').disabled), 'Reconnect did not put the file back behind the session');
+    await comment(guest, 'second', 'After reconnect');
+    await hasText(host, '@Bob: After reconnect');
+    await waitDisk(host, { has: ['@Bob: After reconnect'] }, 'reconnected file did not get the changes made in the session');
+
     // ── Host stops sharing: guest keeps an editable copy ──
     await host.locator('#btn-share').click();
     await host.locator('#share-menu.visible').waitFor();
@@ -285,7 +313,7 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     await late.context().close();
 
     assert(errors.length === 0, 'page errors: ' + errors.join('; '));
-    console.log('Collab E2E: share, join, live comments with authors, concurrency, per-user undo, open-box rebasing, saves, host refresh, stop, and dead links passed.');
+    console.log('Collab E2E: share, join, live comments with authors, concurrency, per-user undo, open-box rebasing, saves, host refresh, file reconnect, stop, and dead links passed.');
   } finally {
     for (const page of [host, guest]) {
       await page.evaluate(async () => {

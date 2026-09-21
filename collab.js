@@ -330,6 +330,7 @@
       history.replaceState(null, '', location.pathname + location.search);
     }
     closeMenu();
+    hideBanner();  // a pending "reconnect your file" no longer applies; ended-session banners follow
     // The app-level undo stack holds pre-session and mid-session snapshots;
     // popping one now would silently revert everyone's changes since. Start clean.
     clearUndo();
@@ -689,9 +690,11 @@
     try {
       if (await handle.queryPermission({ mode: 'read' }) !== 'granted') {
         // Chrome forgets the grant on refresh and re-asking needs a click:
-        // the first Save does it (reattachFile) instead of opening a picker.
+        // the banner's Reconnect button (or the first Save) does it via
+        // reattachFile instead of opening a picker. Until then nothing
+        // reaches the file, so the banner stays up rather than a toast.
         s.reattach = handle;
-        showNotice('Your file needs permission again after the refresh — Save (Ctrl+S) reconnects it.', 'info');
+        showBanner('Your file needs permission again after the refresh — until you reconnect it, the session is not saved to it.', { reattach: true });
         return;
       }
       const file = await handle.getFile();
@@ -712,12 +715,16 @@
   async function reattachFile() {
     if (!s || !s.reattach) return false;
     const handle = s.reattach;
-    try {
-      if (await handle.requestPermission({ mode: 'readwrite' }) !== 'granted') return false;
-    } catch (_) { return false; }
+    let granted = false;
+    try { granted = await handle.requestPermission({ mode: 'readwrite' }) === 'granted'; } catch (_) {}
     if (!s || s.reattach !== handle) return false;
+    if (!granted) {
+      showNotice('Permission was not granted — the file stays disconnected', 'info');
+      return false;  // the banner stays: the next Reconnect or Save asks again
+    }
     s.reattach = null;
     await attachHandle(handle);
+    if (state.fileHandle) hideBanner();
     return !!state.fileHandle;
   }
 
@@ -755,8 +762,10 @@
     });
   }
 
-  function showBanner(text) {
+  // The banner carries a Reconnect button only for the refreshed host's file.
+  function showBanner(text, opts) {
     $('#share-banner-msg').textContent = text;
+    $('#btn-share-reattach').hidden = !(opts && opts.reattach);
     $('#share-banner').style.display = 'flex';
   }
   function hideBanner() { $('#share-banner').style.display = 'none'; }
@@ -856,6 +865,7 @@
     $('#btn-share-stop').addEventListener('click', () => { closeMenu(); stopSharing(); });
     $('#btn-share-leave').addEventListener('click', () => { closeMenu(); leave(); });
     $('#btn-share-banner-dismiss').addEventListener('click', hideBanner);
+    $('#btn-share-reattach').addEventListener('click', () => { reattachFile(); });
     document.addEventListener('mousedown', (e) => {
       if (menuOpen && !menu().contains(e.target) && !e.target.closest('#btn-share')) closeMenu();
     });
