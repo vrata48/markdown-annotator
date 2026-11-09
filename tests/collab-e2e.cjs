@@ -94,7 +94,21 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
       await openHandle(handle);
     }, FIXTURE);
     await host.locator('body.file-open').waitFor();
+    // The file moves on disk while the host has unsaved changes: the conflict
+    // must be settled before sharing, or auto-save skips the whole session.
+    await host.evaluate(async () => {
+      const w = await state.fileHandle.createWritable();
+      await w.write((await (await state.fileHandle.getFile()).text()) + '\nDisk edit line.\n');
+      await w.close();
+      state.rawMarkdown += '\nHost draft line.\n';
+      markDirty();
+      render();
+      await checkDiskChange();
+    });
+    assert(await host.evaluate(() => state.diskMoved && state.dirty), 'the disk conflict was not set up');
     await host.locator('#btn-share').click();
+    await host.locator('#message-dialog.visible').waitFor();
+    await host.locator('#message-ok').click();
     await host.locator('#share-dialog.visible').waitFor();
     assert(await host.locator('#share-name').inputValue() === 'Ada', 'name dialog was not prefilled');
     await host.locator('#share-ok').click();
@@ -104,6 +118,7 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     assert(link.startsWith(base + '#share=') && new URL(link).hash.split('.').length === 2, 'share link is malformed: ' + link);
     assert(await host.evaluate(() => Collab.host && $('#btn-share-stop').hidden === false), 'host controls missing');
     assert(await host.evaluate(() => !$('#btn-autosave').disabled && $('#btn-refresh').disabled && $('#btn-autoreload').disabled), 'reload controls still live, or auto-save unavailable, while sharing');
+    await waitDisk(host, { has: ['Host draft line.'], lacks: ['Disk edit line.'], clean: true }, 'sharing after a disk conflict did not write the shared version to the file');
 
     // ── Guest joins by link ──
     await guest.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -259,6 +274,26 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
       return { text: await (await handle.getFile()).text(), still: Collab.active };
     });
     assert(guestSaved.text === hostSaved && guestSaved.still, 'guest "save as" did not write the shared document');
+
+    // ── A stalled host auto-save raises a banner that stays until a save works ──
+    await host.evaluate(() => {
+      const real = state.fileHandle;
+      window.__realHandle = real;
+      state.fileHandle = {
+        kind: real.kind, name: real.name,
+        queryPermission: async () => 'prompt',
+        requestPermission: async () => 'granted',
+        getFile: () => real.getFile(),
+        createWritable: (o) => real.createWritable(o),
+        isSameEntry: (h) => real.isSameEntry(h),
+      };
+    });
+    await comment(guest, 'draft', 'While stalled');
+    await host.waitForFunction(() => getComputedStyle($('#share-banner')).display !== 'none' && /not being saved/.test($('#share-banner-msg').textContent), null, { timeout: 20000 });
+    await host.evaluate(() => { state.fileHandle = window.__realHandle; });
+    await host.keyboard.press('Control+s');
+    await host.waitForFunction(() => getComputedStyle($('#share-banner')).display === 'none', null, { timeout: 10000 });
+    await waitDisk(host, { has: ['@Bob: While stalled'], clean: true }, 'the manual save after a stall did not write the session');
 
     // ── Host refresh: rejoins silently and gets its file back as save target ──
     await host.reload({ waitUntil: 'domcontentloaded' });

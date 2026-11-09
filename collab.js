@@ -57,7 +57,7 @@
     get name() { return s ? s.name : getName(); },
     setName,  // replies outside a session sign with the remembered name; the reply box can change it
     init, share, stopSharing, leave, pushLocal, pushDisk, undo, canUndo,
-    anchorPending, rebasePending, anchorEdit, attachHandle, reattachFile, refreshUi,
+    anchorPending, rebasePending, anchorEdit, attachHandle, reattachFile, refreshUi, fileStalled, fileSaved,
     session: () => s,
   };
 
@@ -186,6 +186,16 @@
     if (utf8.enc.encode(Core.removeReviewBrief(state.rawMarkdown)).length > MAX_SHARE_BYTES) {
       showAppAlert('This document is too large to share live (the limit is about 2.5 MB).', 'Sharing unavailable');
       return;
+    }
+    // The file changed on disk under us (the banner, even dismissed): settle
+    // it first. Sharing takes that banner down, and while the conflict stands
+    // auto-save skips every save — the session would never reach the file.
+    if (state.diskMoved && state.fileHandle) {
+      if (!state.dirty) {
+        try { await adoptDiskCopy(await state.fileHandle.getFile()); } catch (_) {}
+      } else if (!await askConfirmation('This file changed on disk and you have unsaved changes. Share your version? It overwrites the file on disk.', 'Share mine')) {
+        return;
+      }
     }
     const name = await askName('share');
     if (name == null) return;
@@ -772,6 +782,17 @@
       showModal(dialog, input);
       requestAnimationFrame(() => input.select());
     });
+  }
+
+  // The host's auto-save stalled: the session is not reaching the file.
+  // Stays up (re-shown on every failed attempt) until a save goes through.
+  function fileStalled(why) {
+    if (!s || !s.host || s.reattach) return;  // the Reconnect banner already says it
+    s.stalled = true;
+    showBanner('Your file is not being saved — ' + why + ' Press Ctrl+S to save the session to it.');
+  }
+  function fileSaved() {
+    if (s && s.stalled) { s.stalled = false; hideBanner(); }
   }
 
   // The banner carries a Reconnect button only for the refreshed host's file.

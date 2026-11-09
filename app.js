@@ -366,9 +366,16 @@ async function enableAutoSaveForSharing() {
   try {
     if (await state.fileHandle.requestPermission({ mode: 'readwrite' }) === 'granted') autoSaveBlocked = false;
   } catch (_) {}
+  // share() already settled a moved disk copy (adopted it, or the host chose
+  // to share their version): this is the deliberate overwrite. Left set, it
+  // would skip every auto-save of the session without a word.
+  state.diskMoved = false;
   updateToolbar();
   scheduleAutoSave();
 }
+// While hosting, the file is the session's only durable copy: a stalled
+// auto-save says so in a banner that stays, not a toast that fades.
+function sessionSaveStalled(why) { if (Collab.active && Collab.host) Collab.fileStalled(why); }
 function refreshAutoSaveButton() {
   const on = getAutoSave();
   const btn = $('#btn-autosave');
@@ -405,7 +412,7 @@ function scheduleAutoSave() {
     if (!state.dirty || !autoSaveActive()) return;
     // The disk version moved (conflict banner, even if dismissed since) —
     // never overwrite it silently; a manual save or reload resolves it.
-    if (state.diskMoved) return;
+    if (state.diskMoved) { sessionSaveStalled('the file changed on disk.'); return; }
     saveFile({ auto: true });
   }, 1500);
 }
@@ -845,6 +852,7 @@ async function saveFile(opts) {
       if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted') {
         autoSaveBlocked = true;
         updateToolbar();  // light the save button — it's the way out of the stall
+        sessionSaveStalled('it needs write access again.');
         if (!autoSaveBlockedNotified) {
           autoSaveBlockedNotified = true;
           showNotice('Auto-save needs write access — save once with Ctrl+S to grant it.', 'info');
@@ -884,11 +892,13 @@ async function saveFile(opts) {
     }
     flashSaved();
     hideDiskBanner();
+    Collab.fileSaved();
   } catch (e) {
     if (auto) {
       autoSaveBlocked = true;  // stalled — light the save button as the manual way out
       updateToolbar();
       showNotice('Auto-save failed: ' + e.message);  // a timer must not raise modal alerts
+      sessionSaveStalled('the last save failed (' + e.message + ').');
     } else {
       showAppAlert('Save failed: ' + e.message, 'Could not save file');
     }
