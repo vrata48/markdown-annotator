@@ -29,6 +29,7 @@
   const LOCAL = 'local';    // Yjs transaction origins: our own splices ...
   const REMOTE = 'remote';  // ... and updates received from the relay
   const DISK = 'disk';      // ... and the host's file changing on disk (sent, but not undoable)
+  const RESTORE = 'restore'; // ... and our stored local copy merged back in (sent, not undoable)
   const KEEPALIVE_MS = 25000;
   const PRESENCE_MS = 20000;
   const SNAPSHOT_AFTER = 40;   // compact the relay log once this many updates pile up
@@ -139,6 +140,87 @@
     return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(0, 12) }, key, bytes.subarray(12)));
   }
 
+  // ── Local copy ─────────────────────────────────────────────
+  // Every browser in a room keeps the session in IndexedDB, encrypted with the
+  // room key (only a link holder can read it): a crash, a restart or a dead
+  // room never takes the last copy with it. Rejoining merges it back.
+  const LOCAL_DB = 'md-annotator-rooms';
+  const LOCAL_KEEP_MS = 30 * 24 * 3600e3;  // copies untouched this long are pruned
+  const LOCAL_SAVE_MS = 800;
+  function localTx(mode, fn) {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open(LOCAL_DB, 1);
+      open.onupgradeneeded = () => open.result.createObjectStore('rooms', { keyPath: 'room' });
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result;
+        const tx = db.transaction('rooms', mode);
+        const req = fn(tx.objectStore('rooms'));
+        tx.oncomplete = () => { db.close(); resolve(req ? req.result : undefined); };
+        tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
+      };
+    });
+  }
+  const localGet = (room) => localTx('readonly', st => st.get(room)).catch(() => null);
+  const localPut = (rec) => localTx('readwrite', st => st.put(rec)).catch(() => {});
+  function localPrune() {
+    localTx('readwrite', st => {
+      const cur = st.openCursor();
+      cur.onsuccess = () => {
+        const c = cur.result;
+        if (!c) return;
+        if (!(Date.now() - (c.value.ts || 0) < LOCAL_KEEP_MS)) c.delete();
+        c.continue();
+      };
+      return null;
+    }).catch(() => {});
+  }
+
+  // The stored copy of a room as a Y.Doc, or null.
+  async function loadLocal(Y, room, cryptoKey) {
+    const rec = await localGet(room);
+    if (!rec || !rec.d) return null;
+    try {
+      const doc = new Y.Doc();
+      Y.applyUpdate(doc, await decrypt(cryptoKey, rec.d));
+      return doc.getText('md').length ? doc : null;
+    } catch (_) { return null; }
+  }
+
+  function scheduleLocalSave(session) {
+    if (session.ended || !session.localReady) return;
+    clearTimeout(session.timers.local);
+    session.timers.local = setTimeout(() => saveLocal(session), LOCAL_SAVE_MS);
+  }
+  // Encode now (the doc may be destroyed right after), encrypt and store in order.
+  function saveLocal(session) {
+    if (!session.localReady) return;
+    clearTimeout(session.timers.local);
+    session.timers.local = null;
+    let update, name;
+    try { update = session.Y.encodeStateAsUpdate(session.doc); name = session.meta.get('name') || ''; } catch (_) { return; }
+    session.localChain = session.localChain.then(async () => {
+      await localPut({ room: session.room, d: await encrypt(session.cryptoKey, update), name, ts: Date.now() });
+    }).catch(() => {});
+  }
+
+  // First sync: whatever only our stored copy has (made while the relay never
+  // got it, or after it lost the room) goes back into the session, and out to
+  // everybody, since it is not a REMOTE change.
+  function mergeLocal(session) {
+    const local = session.localDoc;
+    session.localDoc = null;
+    session.localReady = true;
+    if (local) {
+      try {
+        const missing = session.Y.encodeStateAsUpdate(local, session.Y.encodeStateVector(session.doc));
+        session.Y.applyUpdate(session.doc, missing, RESTORE);
+      } catch (_) {}
+      local.destroy();
+    }
+    saveLocal(session);
+  }
+
   function loadYjs() {
     if (!yjsPromise) {
       yjsPromise = import(YJS_URL).catch(e => { yjsPromise = null; throw e; });
@@ -168,12 +250,18 @@
       adopted: false,     // state.rawMarkdown mirrors the shared text
       peers: new Map(),   // relay client id → { name, ts }
       cid: 0,
+      localDoc: null,     // our stored copy of the room, merged in at the first sync
+      localReady: false,  // saving the local copy is safe (it was merged, or there was none)
+      localChain: Promise.resolve(),
       keep: false,        // the relay holds the room until the host stops sharing (no TTL)
       ttl: 72,            // the relay's TTL in hours, from 'hi'
       timers: {},
       undo: new Y.UndoManager(text, { trackedOrigins: new Set([LOCAL]), captureTimeout: 0 }),
     };
-    doc.on('update', (update, origin) => { if (origin !== REMOTE) queueUpdate(session, update); });
+    doc.on('update', (update, origin) => {
+      if (origin !== REMOTE) queueUpdate(session, update);
+      scheduleLocalSave(session);
+    });
     text.observe((ev, tr) => { if (tr.origin !== LOCAL && session.adopted && !session.replaying) applyFromDoc(); });
     return session;
   }
@@ -218,6 +306,8 @@
       s.meta.set('name', state.fileName || 'document.md');
     }, LOCAL);
     s.undo.clear();
+    s.localReady = true;  // a new room: nothing stored to merge
+    saveLocal(s);
     // Rooms are kept by default: the session lives until the host stops it
     // (unticking "Keep this room" hands it back to the relay's TTL).
     s.keep = true;
@@ -259,8 +349,12 @@
       try { Y = await loadYjs(); }
       catch (_) { await showAppAlert('The collaboration library could not be loaded. Check your connection and reload the link.', 'Cannot join'); return; }
       if (s) return;
-      s = createSession(Y, parsed.room, keyBytes, await importKey(keyBytes), isHostRoom(parsed.room));
+      const cryptoKey = await importKey(keyBytes);
+      const localDoc = await loadLocal(Y, parsed.room, cryptoKey);
+      if (s) { if (localDoc) localDoc.destroy(); return; }
+      s = createSession(Y, parsed.room, keyBytes, cryptoKey, isHostRoom(parsed.room));
       s.name = name;
+      s.localDoc = localDoc;
       connect();
     } finally {
       if (!s) {
@@ -323,6 +417,12 @@
     enterSession();
     showNotice('Joined the shared session', 'ok');
     if (pendingAttach) { const h = pendingAttach; pendingAttach = null; attachHandle(h); }
+    else if (s.host) {
+      // The host in a tab that never had the file (the link opened afresh):
+      // nothing here saves the session until a file is picked.
+      s.stalled = true;
+      showBanner('This tab is not connected to your file, so the session is not saved to it. Press Ctrl+S and pick the file.');
+    }
   }
 
   // Tear the session down; the document stays open as it is.
@@ -331,6 +431,7 @@
     const session = s;
     s = null;
     pendingAttach = null;
+    saveLocal(session);  // flush a pending write before the doc goes
     session.ended = true;
     for (const t of Object.values(session.timers)) { clearTimeout(t); clearInterval(t); }
     if (session.ws) { try { session.ws.onclose = null; session.ws.close(); } catch (_) {} }
@@ -497,6 +598,7 @@
         break;
       case 'sync':
         session.replaying = false;
+        if (!session.localReady) mergeLocal(session);
         if (!session.synced) {
           session.synced = true;
           if (!session.adopted) adoptDocument();
@@ -578,6 +680,8 @@
 
   function roomGone() {
     if (!s) return;
+    // The relay lost the room, but this browser kept a copy: open that.
+    if (!s.adopted && s.localDoc) { recoverLocal(); return; }
     const wasAdopted = s.adopted;
     const orphan = wasAdopted ? null : pendingAttach;
     removeHostRoom(s.room);
@@ -585,6 +689,32 @@
     if (wasAdopted) showBanner('This shared session has expired. Your copy stays open — save it to keep your annotations.');
     else showAppAlert('This shared session has ended, or the link is not valid.', 'Cannot join');
     if (orphan && !state.fileOpen) openHandle(orphan, { silent: true });  // the tab's own file still opens (host refresh into a dead room)
+  }
+
+  function recoverLocal() {
+    const local = s.localDoc;
+    s.localDoc = null;
+    const text = local.getText('md').toString();
+    const name = local.getMap('meta').get('name') || 'shared-document.md';
+    local.destroy();
+    removeHostRoom(s.room);
+    teardown();
+    cancelAutoSave();
+    if (typeof watchTimer !== 'undefined' && watchTimer) { clearInterval(watchTimer); watchTimer = null; }
+    discardPendingEdits();
+    hideDiskBanner();
+    state.rawMarkdown = Core.syncReviewBrief(text);
+    state.fileName = name;
+    state.displayPath = name + ' — recovered from this browser';
+    state.fileHandle = null;
+    state.sample = false;
+    state.dirty = true;  // it lives nowhere else now: keep the unsaved warning up
+    state.diskMoved = false;
+    state.fileOpen = true;
+    clearUndo();
+    render({ fresh: true });
+    updateToolbar();
+    showBanner('This shared session no longer exists on the relay, but your browser kept a copy. Save it (Ctrl+S) to keep the annotations.');
   }
 
   function badKey() {
@@ -892,6 +1022,7 @@
   }
 
   function init() {
+    localPrune();
     renderedView.addEventListener('mousedown', (e) => {
       if (e.button === 0 && e.target.closest('#content')) selecting = true;
     });

@@ -336,6 +336,49 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     await hasText(host, '@Bob: After reconnect');
     await waitDisk(host, { has: ['@Bob: After reconnect'] }, 'reconnected file did not get the changes made in the session');
 
+    // ── The host opening the link in a fresh tab is told the tab saves nothing ──
+    const hostTab = await host.context().newPage();
+    hostTab.on('pageerror', e => errors.push('Ada2: ' + e.message));
+    await hostTab.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await ready(hostTab);
+    await hostTab.locator('#share-dialog.visible').waitFor();
+    await hostTab.locator('#share-ok').click();
+    await hostTab.locator('body.file-open.sharing').waitFor({ timeout: 30000 });
+    assert(await hostTab.evaluate(() => Collab.host && !state.fileHandle && getComputedStyle($('#share-banner')).display !== 'none'
+      && /not connected to your file/.test($('#share-banner-msg').textContent)), 'a host tab without the file did not say it saves nothing');
+    await hostTab.close();
+
+    // ── A change that never reached the relay survives in the browser's copy ──
+    const lostTab = await guest.context().newPage();
+    lostTab.on('pageerror', e => errors.push('Bob3: ' + e.message));
+    await lostTab.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await ready(lostTab);
+    await lostTab.locator('#share-dialog.visible').waitFor();
+    await lostTab.locator('#share-ok').click();
+    await lostTab.locator('body.file-open.sharing').waitFor({ timeout: 30000 });
+    await lostTab.waitForFunction(() => Collab.session().synced && Collab.session().localReady);
+    await lostTab.evaluate(() => {
+      // The relay becomes unreachable for this tab: frames queue up and never leave.
+      window.WebSocket = class { constructor() { this.readyState = 0; } send() {} close() {} };
+      Collab.session().ws.close();
+    });
+    await lostTab.waitForFunction(() => Collab.session().status === 'reconnecting');
+    await comment(lostTab, 'rewritten', 'Only in this browser');
+    await lostTab.waitForFunction(() => Collab.session().queue.length > 0);
+    await lostTab.waitForTimeout(1500);  // the local copy is written 0.8s after a change
+    await lostTab.close();
+    assert(!(await host.evaluate(() => state.rawMarkdown.includes('Only in this browser'))), 'the cut-off change reached the host anyway');
+    const backTab = await guest.context().newPage();
+    backTab.on('pageerror', e => errors.push('Bob4: ' + e.message));
+    await backTab.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await ready(backTab);
+    await backTab.locator('#share-dialog.visible').waitFor();
+    await backTab.locator('#share-ok').click();
+    await backTab.locator('body.file-open.sharing').waitFor({ timeout: 30000 });
+    await hasText(host, '@Bob: Only in this browser');
+    await waitDisk(host, { has: ['@Bob: Only in this browser'] }, 'the merged local copy did not reach the host\'s file');
+    await backTab.close();
+
     // ── Host stops sharing: guest keeps an editable copy ──
     await host.locator('#btn-share').click();
     await host.locator('#share-menu.visible').waitFor();
@@ -359,8 +402,21 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     assert(await late.evaluate(() => !state.fileOpen && !Collab.active && !Collab.joining), 'dead link left the app half-joined');
     await late.context().close();
 
+    // ── A dead link opened where the session was kept locally recovers it ──
+    const again = await guest.context().newPage();
+    again.on('pageerror', e => errors.push('Bob5: ' + e.message));
+    await again.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await ready(again);
+    await again.locator('#share-dialog.visible').waitFor();
+    await again.locator('#share-ok').click();
+    await again.waitForFunction(() => state.fileOpen && getComputedStyle($('#share-banner')).display !== 'none', null, { timeout: 30000 });
+    const recovered = await again.evaluate(() => ({ text: state.rawMarkdown, dirty: state.dirty, active: Collab.active, msg: $('#share-banner-msg').textContent }));
+    assert(recovered.text.includes('@Bob: Only in this browser') && recovered.text.includes('@Bob: After reconnect') && recovered.dirty && !recovered.active
+      && /kept a copy/.test(recovered.msg), 'the local copy was not recovered from a dead room: ' + JSON.stringify({ dirty: recovered.dirty, active: recovered.active, msg: recovered.msg }));
+    await again.close();
+
     assert(errors.length === 0, 'page errors: ' + errors.join('; '));
-    console.log('Collab E2E: share, join, live comments with authors, concurrency, per-user undo, open-box rebasing, saves, host refresh, file reconnect, stop, and dead links passed.');
+    console.log('Collab E2E: share, join, live comments with authors, concurrency, per-user undo, open-box rebasing, saves, host refresh, file reconnect, host tab without the file, local copies, stop, and dead links passed.');
   } finally {
     for (const page of [host, guest]) {
       await page.evaluate(async () => {
@@ -368,10 +424,12 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
           const opfs = await navigator.storage.getDirectory();
           for (const name of ['collab-host.md', 'collab-guest.md']) { try { await opfs.removeEntry(name); } catch (_) {} }
         } catch (_) {}
-        await new Promise(resolve => {
-          const req = indexedDB.deleteDatabase('md-annotator');
-          req.onsuccess = req.onerror = req.onblocked = resolve;
-        });
+        for (const db of ['md-annotator', 'md-annotator-rooms']) {
+          await new Promise(resolve => {
+            const req = indexedDB.deleteDatabase(db);
+            req.onsuccess = req.onerror = req.onblocked = resolve;
+          });
+        }
       }).catch(() => {});
     }
     await browser.close();

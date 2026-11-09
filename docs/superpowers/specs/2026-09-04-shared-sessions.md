@@ -22,6 +22,8 @@ session is a temporary, encrypted meeting point.
   Since 2026-11-09 rooms are kept by default: Share sends `{t:'keep', on:true}`,
   the relay then never expires the room, and only Stop sharing deletes it. The
   host can untick "Keep this room" in the Share panel to return it to the TTL.
+  Every browser also keeps an encrypted local copy of each room in IndexedDB;
+  rejoining merges it back, and a link whose room is gone opens that copy.
 - **CRDT over the body only.** The shared text is the markdown *without* the
   generated review brief; every client regenerates the brief locally. Sharing
   derived text would make concurrent edits fight over it.
