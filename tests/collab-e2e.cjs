@@ -131,6 +131,18 @@ const FIXTURE = '# Shared fixture\n\nThe quick brown fox jumps over the lazy dog
     await guestTab.close();
     await host.waitForFunction(() => [...document.querySelectorAll('#share-peers .share-peer')].some(el => el.textContent === 'Bob'), null, { timeout: 20000 });
 
+    // ── Rooms are kept by default; the host can hand one back to the TTL ──
+    assert(await guest.evaluate(() => $('#share-keep').hidden && Collab.session().keep && /until the host stops sharing/.test($('#share-note').textContent)), 'guest sees the keep toggle, or the room is not kept by default');
+    // share() left the panel open; a click on the Share button would close it.
+    if (!await host.locator('#share-menu.visible').count()) await host.locator('#btn-share').click();
+    await host.locator('#share-menu.visible').waitFor();
+    assert(await host.locator('#share-keep-box').isChecked(), 'keep is not ticked for a new room');
+    await host.locator('#share-keep-box').uncheck();
+    await guest.waitForFunction(() => !Collab.session().keep && /3 days after the last change/.test($('#share-note').textContent), null, { timeout: 20000 });
+    await host.locator('#share-keep-box').check();
+    await guest.waitForFunction(() => Collab.session().keep, null, { timeout: 20000 });
+    await host.keyboard.press('Escape');
+
     // ── Comments flow both ways, signed by their authors ──
     await comment(guest, 'fox', 'Check animal');
     await hasText(guest, '{== fox ==}{>> @Bob: Check animal <<}');

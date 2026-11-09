@@ -14,11 +14,14 @@
  *                         (n <= the standing snapshot is acked as a no-op:
  *                         several clients compacting at once is not an error)
  *     {t:'p', d}          presence; broadcast to others as {t:'p', c, d}, never stored
+ *     {t:'keep', on}      on: the room never expires (only 'end' deletes it); off: back to
+ *                         the TTL. Broadcast to everybody (sender too) as {t:'keep', on}
  *     {t:'end'}           delete the room; everybody receives {t:'end', r} and is closed
  *                         (r: 'ended' when a client ended it, 'expired' on TTL)
  *     'ping'              keepalive, answered with 'pong' without waking the object
  *   room → client
- *     {t:'hi', c, peers, n}   your client id, the other client ids, the current seq
+ *     {t:'hi', c, peers, n, keep, ttl}   your client id, the other client ids, the current
+ *                             seq, whether the room is kept, the TTL in hours
  *     {t:'s', d, n} / {t:'u', d, n} ...   replay (only entries above ?since=)
  *     {t:'sync', n, count}    replay finished; count = updates since the snapshot
  *     {t:'ack', n}            seq assigned to your last update
@@ -68,7 +71,7 @@ export class Room {
 
   ttlMs() {
     const hours = Number(this.env.ROOM_TTL_HOURS);
-    return (hours > 0 ? hours : 24) * 3600e3;
+    return (hours > 0 ? hours : 72) * 3600e3;
   }
 
   async fetch(request) {
@@ -93,7 +96,7 @@ export class Room {
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ c: cid });
     const peers = this.sockets().filter(w => w !== server).map(w => this.cidOf(w)).filter(Boolean);
-    server.send(JSON.stringify({ t: 'hi', c: cid, peers, n: meta.seq }));
+    server.send(JSON.stringify({ t: 'hi', c: cid, peers, n: meta.seq, keep: !!meta.keep, ttl: this.ttlMs() / 3600e3 }));
 
     // Replay: the snapshot (if the client predates it), then the updates after
     // whichever is newer — the snapshot or what the client already has.
@@ -129,7 +132,8 @@ export class Room {
   async touch(meta) {
     meta.last = Date.now();
     await this.ctx.storage.put('meta', meta);
-    await this.ctx.storage.setAlarm(meta.last + this.ttlMs());
+    if (meta.keep) await this.ctx.storage.deleteAlarm();
+    else await this.ctx.storage.setAlarm(meta.last + this.ttlMs());
   }
 
   async endRoom(reason) {
@@ -143,7 +147,7 @@ export class Room {
 
   async alarm() {
     const meta = await this.ctx.storage.get('meta');
-    if (!meta) return;
+    if (!meta || meta.keep) return;
     if (Date.now() >= meta.last + this.ttlMs()) await this.endRoom('expired');
     else await this.ctx.storage.setAlarm(meta.last + this.ttlMs());
   }
@@ -205,6 +209,13 @@ export class Room {
       meta.bytes = bytes;
       await this.touch(meta);
       ws.send(JSON.stringify({ t: 'ack', n }));
+      return;
+    }
+
+    if (m.t === 'keep') {
+      meta.keep = !!m.on;
+      await this.touch(meta);
+      this.broadcast({ t: 'keep', on: meta.keep });
       return;
     }
 

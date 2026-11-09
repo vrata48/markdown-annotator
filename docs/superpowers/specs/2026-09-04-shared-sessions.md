@@ -18,7 +18,10 @@ session is a temporary, encrypted meeting point.
   The 256-bit AES-GCM key sits in the URL fragment, which browsers never send.
   Every Yjs update is encrypted before it leaves the browser.
 - **Rooms are sessions, not documents.** No listing, no history, no identity.
-  A room dies 24 hours after its last message, or when the host stops sharing.
+  A room dies 72 hours after its last message, or when the host stops sharing.
+  Since 2026-11-09 rooms are kept by default: Share sends `{t:'keep', on:true}`,
+  the relay then never expires the room, and only Stop sharing deletes it. The
+  host can untick "Keep this room" in the Share panel to return it to the TTL.
 - **CRDT over the body only.** The shared text is the markdown *without* the
   generated review brief; every client regenerates the brief locally. Sharing
   derived text would make concurrent edits fight over it.

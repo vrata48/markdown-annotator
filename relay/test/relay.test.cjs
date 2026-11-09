@@ -186,3 +186,32 @@ test('relay: an idle room expires after its TTL', { timeout: 240000 }, async (t)
   await b.next(is('gone'));
   await b.closed;
 });
+
+test('relay: a kept room outlives its TTL until keep is turned off', { timeout: 240000 }, async (t) => {
+  const relay = await startRelay({ vars: { ROOM_TTL_HOURS: '0.0005' } });  // 1.8 seconds
+  t.after(() => relay.stop());
+  const room = roomId();
+  const a = connect(relay.url, room, '?create=1');
+  await a.opened;
+  const hi = await a.next(is('hi'));
+  assert.equal(hi.keep, false);
+  assert.equal(hi.ttl, 0.0005);
+  await a.next(is('sync'));
+  a.send({ t: 'u', d: 'U1' });
+  await a.next(is('ack'));
+  a.send({ t: 'keep', on: true });
+  assert.equal((await a.next(is('keep'))).on, true);
+  await a.close();
+
+  await new Promise(r => setTimeout(r, 4000));  // well past the TTL
+  const b = connect(relay.url, room);
+  await b.opened;
+  assert.equal((await b.next(is('hi'))).keep, true);
+  assert.equal((await b.next(is('u'))).d, 'U1');
+  await b.next(is('sync'));
+
+  b.send({ t: 'keep', on: false });
+  assert.equal((await b.next(is('keep'))).on, false);
+  assert.equal((await b.next(is('end'), 15000)).r, 'expired');
+  await b.closed;
+});

@@ -168,6 +168,8 @@
       adopted: false,     // state.rawMarkdown mirrors the shared text
       peers: new Map(),   // relay client id → { name, ts }
       cid: 0,
+      keep: false,        // the relay holds the room until the host stops sharing (no TTL)
+      ttl: 72,            // the relay's TTL in hours, from 'hi'
       timers: {},
       undo: new Y.UndoManager(text, { trackedOrigins: new Set([LOCAL]), captureTimeout: 0 }),
     };
@@ -206,6 +208,10 @@
       s.meta.set('name', state.fileName || 'document.md');
     }, LOCAL);
     s.undo.clear();
+    // Rooms are kept by default: the session lives until the host stops it
+    // (unticking "Keep this room" hands it back to the relay's TTL).
+    s.keep = true;
+    sendFrame({ t: 'keep', on: true });
     addHostRoom(room);
     setJoinedRoom(room);
     history.replaceState(null, '', Helpers().shareHash(room, s.key));
@@ -454,6 +460,8 @@
       case 'hi':
         session.create = false;  // the room exists now; reconnects must not recreate it
         session.cid = m.c;
+        session.keep = !!m.keep;
+        if (m.ttl > 0) session.ttl = m.ttl;
         session.replaying = true;
         session.peers.clear();
         for (const c of m.peers || []) session.peers.set(c, { name: '', uid: '', ts: Date.now() });
@@ -505,6 +513,10 @@
         refreshUi();
         break;
       }
+      case 'keep':
+        session.keep = !!m.on;
+        refreshUi();
+        break;
       case 'end':
         roomEnded(m.r);
         break;
@@ -735,7 +747,7 @@
     input.value = getName();
     $('#share-dialog-title').textContent = purpose === 'share' ? 'Share this document' : 'Join a shared session';
     $('#share-dialog-text').textContent = purpose === 'share'
-      ? 'Anyone with the link can read and annotate this document live. It is encrypted in your browser; the relay only ever holds ciphertext, and forgets the session a day after the last change.'
+      ? 'Anyone with the link can read and annotate this document live. It is encrypted in your browser; the relay only ever holds ciphertext, and keeps the session until you stop sharing.'
       : 'Someone shared a document with you. Your name is added to the comments you make.';
     $('#share-ok').textContent = purpose === 'share' ? 'Start sharing' : 'Join';
     return new Promise(resolve => {
@@ -805,6 +817,19 @@
     return 'Reconnecting… changes are kept until the relay is back';
   }
 
+  function ttlText(hours) {
+    if (hours % 24 === 0) { const d = hours / 24; return d === 1 ? 'a day' : d + ' days'; }
+    return hours === 1 ? 'an hour' : hours + ' hours';
+  }
+
+  // Host only: keep the room past the TTL, or hand it back to the TTL.
+  function setKeep(on) {
+    if (!s || !s.host) return;
+    s.keep = on;  // the relay echoes {t:'keep'} to everybody, us included
+    sendFrame({ t: 'keep', on });
+    refreshUi();
+  }
+
   function refreshUi() {
     const btn = $('#btn-share');
     if (!btn) return;
@@ -830,6 +855,11 @@
       list.appendChild(el);
     }
     $('#btn-share-stop').hidden = !s.host;
+    $('#share-keep').hidden = !s.host;
+    $('#share-keep-box').checked = s.keep;
+    $('#share-note').textContent = 'Anyone with the link can read and annotate. The document is encrypted in the browser; the relay keeps only ciphertext and '
+      + (s.keep ? 'holds the session until the host stops sharing.' : 'drops the session ' + ttlText(s.ttl) + ' after the last change.')
+      + ' Save keeps a copy on your disk.';
     $('#btn-share-leave').textContent = s.host ? 'Leave (keep it running)' : 'Leave session';
   }
 
@@ -863,6 +893,7 @@
     });
     $('#share-link').addEventListener('focus', (e) => e.target.select());
     $('#btn-share-stop').addEventListener('click', () => { closeMenu(); stopSharing(); });
+    $('#share-keep-box').addEventListener('change', (e) => setKeep(e.target.checked));
     $('#btn-share-leave').addEventListener('click', () => { closeMenu(); leave(); });
     $('#btn-share-banner-dismiss').addEventListener('click', hideBanner);
     $('#btn-share-reattach').addEventListener('click', () => { reattachFile(); });

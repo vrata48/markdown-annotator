@@ -14,7 +14,7 @@ new_sqlite_classes = ["Room"]
 [vars]
 # A room is deleted this long after its last message. Rooms are sessions, not
 # storage: whoever wants to keep the document saves it locally.
-ROOM_TTL_HOURS = "24"
+ROOM_TTL_HOURS = "72"
 # Optional, comma-separated. When set, websocket upgrades from any other
 # Origin are refused. Leave empty to accept every origin.
 ALLOWED_ORIGINS = ""

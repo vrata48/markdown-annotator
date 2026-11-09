@@ -26,13 +26,14 @@ allows `wss://*.workers.dev`; a custom domain needs adding to `connect-src`.
 
 Durable Objects with SQLite storage are available on the free plan; a handful
 of sessions costs nothing. There is no database to manage and nothing to back
-up, since rooms are ephemeral by design.
+up: the app keeps new rooms by default (Share panel → "Keep this room"), and a kept
+room lives until the host stops sharing. Unticking it returns the room to the TTL.
 
 ## Configuration (`wrangler.toml`)
 
 | Var               | Default | Meaning |
 | ----------------- | ------- | ------- |
-| `ROOM_TTL_HOURS`  | `24`    | A room is deleted this long after its last message. |
+| `ROOM_TTL_HOURS`  | `72`    | A room is deleted this long after its last message, unless it is kept. |
 | `ALLOWED_ORIGINS` | empty   | Comma-separated page origins allowed to connect. Empty accepts any origin. |
 
 Limits baked into the code: 4 MB per message, 16 MB per room.
